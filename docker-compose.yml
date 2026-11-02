@@ -5,13 +5,6 @@ services:
     #   docker compose up -d --build                     ← 不走 GHCR，从下面的 build 段本地构建
     # 国内拉不动 ghcr.io 时用第二种，或在 build 段里换 pip / 基础镜像源。
     image: ghcr.io/karasfjm/panshare:latest
-    build:
-      context: .
-      args:
-        # 国内网络可改成 https://pypi.tuna.tsinghua.edu.cn/simple
-        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
-        # 拉不到 docker.io 时换镜像站，例如 docker.m.daocloud.io/library/python:3.12-slim
-        #BASE_IMAGE: ${BASE_IMAGE:-python:3.12-slim}
     container_name: panshare
     restart: unless-stopped
     environment:
