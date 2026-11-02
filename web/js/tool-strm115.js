@@ -220,7 +220,7 @@
 
         <div class="form-row">
           <label>STRM 请求头</label>
-          <input class="input" id="sBase" value="${esc(t.base_url)}" placeholder="http://192.168.2.124:9527">
+          <input class="input" id="sBase" value="${esc(t.base_url)}" placeholder="http://192.168.1.10:9527">
           <span class="form-hint">strm 内容的基地址，客户端必须能访问到；留空则用全局设置</span>
         </div>
 

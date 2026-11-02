@@ -108,7 +108,7 @@
             </div>
             <div class="form-row">
               <label>TMDB 代理（可选）</label>
-              <input class="input mono" id="bdProxy" placeholder="http://192.168.2.124:7890">
+              <input class="input mono" id="bdProxy" placeholder="http://192.168.1.10:7890">
               <span class="form-hint">容器直连 api.themoviedb.org 常握手超时，填宿主机的代理；只作用于 TMDB 请求</span>
             </div>
           </div>
@@ -294,7 +294,7 @@
         <div class="form-row">
           <label>Emby 地址</label>
           <input class="input" id="msHost" value="${esc(srv ? srv.host : '')}"
-            placeholder="http://192.168.2.124:8096">
+            placeholder="http://192.168.1.10:8096">
           <span class="form-hint">Emby 的访问地址，含端口</span>
         </div>
         <div class="form-row">

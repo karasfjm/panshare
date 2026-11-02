@@ -131,7 +131,7 @@
           <div class="form-row">
             <label>Bot Token</label>
             <input class="input mono" id="tgToken" value="${esc(tg.token || '')}"
-              placeholder="123456:ABC-DEF...">
+              placeholder="abcdef:ABC-DEF...">
           </div>
           <div class="form-row">
             <label>Chat ID</label>
