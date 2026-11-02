@@ -51,7 +51,7 @@
 ### 2.1 docker compose（推荐）
 
 ```bash
-git clone <this-repo> panshare && cd panshare
+git clone https://github.com/karasfjm/panshare.git panshare && cd panshare
 
 mkdir -p config strm
 # cookies 可以先不填：服务照常启动，起来后在网页「115 助手」里粘贴即可
@@ -59,8 +59,14 @@ mkdir -p config strm
 # echo 'UID=xxx; CID=xxx; SEID=xxx; KID=xxx' > config/115-cookies.txt
 
 # 编辑 docker-compose.yml：PUBLIC_BASE_URL 改成播放器能访问到的地址
-docker compose up -d --build
+docker compose up -d           # 直接拉 GHCR 上构建好的镜像
 docker compose logs -f
+```
+
+拉不动 `ghcr.io`（国内常见）或者要跑自己的改动时，改成从源码构建，其它完全一样：
+
+```bash
+docker compose up -d --build
 ```
 
 ### 2.2 docker run
@@ -72,7 +78,7 @@ docker run -d --name panshare --restart unless-stopped \
   -v /your/media/strm:/strm \
   -e PUBLIC_BASE_URL=http://192.168.1.10:9527 \
   -e UI_USERNAME=admin -e UI_PASSWORD=your-password \
-  panshare:latest
+  ghcr.io/karasfjm/panshare:latest
 ```
 
 启动后打开 `http://<host>:9527/`，用 `UI_USERNAME` / `UI_PASSWORD` 登录。仓库 compose 里带的是示例值，**部署前务必改成自己的**。
@@ -801,6 +807,17 @@ CHOWN_RECURSIVE=0
 
 ## 14. 构建镜像
 
+### 14.0 直接用预构建镜像（推荐）
+
+```bash
+docker pull ghcr.io/karasfjm/panshare:latest
+```
+
+每次推 `main` 都会自动重建这个 tag（含 `linux/amd64` + `linux/arm64`），不用自己构建。
+拉不动 `ghcr.io` 时用 14.1 / 14.2 本地构建，或从 14.3 的 Actions Artifacts 下载 tar。
+
+---
+
 镜像基于 `python:3.12-slim`，**构建过程中不做任何 `apt-get`**：时区、健康检查、PUID/PGID 降权全部由基础镜像或 Python 标准库实现（`scripts/healthcheck.py`、`scripts/runas.py`），只要能从 pip 源装依赖即可。
 
 ### 14.1 脚本一键构建（推荐）
@@ -837,7 +854,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 
 仓库自带 [`.github/workflows/docker.yml`](./.github/workflows/docker.yml)：
 
-- 推 `main` / `master` 或打 `v*` 标签 → 自动构建 `linux/amd64` + `linux/arm64`，推到 `ghcr.io/<用户名>/<仓库名>:latest`；
+- 推 `main` / `master` 或打 `v*` 标签 → 自动构建 `linux/amd64` + `linux/arm64`，推到 `ghcr.io/karasfjm/panshare:latest`；
 - 页面点 **Run workflow** 手动触发；
 - 每次构建在 **Artifacts** 里放一个 amd64 镜像包，下载解压后 `docker load`，目标机器不需要能访问 registry。
 
@@ -849,7 +866,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 docker load -i panshare-amd64.tar
 ```
 
-`docker load` 后镜像名就是构建时的 tag，配合 compose 时把 `build:` 段删掉即可。
+`docker load` 后镜像名就是构建时的 tag（默认 `panshare:latest`）。想让 compose 用它，把 `docker-compose.yml` 里的 `image:` 改成这个 tag，并且**不要**加 `--build`（否则会重新构建覆盖掉）。
 
 ### 14.5 构建失败
 
@@ -894,3 +911,10 @@ pytest                     # 全量测试
 ## 免责声明
 
 仅供个人备份与媒体管理使用。请遵守 115 的服务条款，控制请求频率，因使用本工具导致的账号风控或封禁与作者无关。
+
+---
+
+## 许可证
+
+[MIT](./LICENSE)
+
