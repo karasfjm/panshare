@@ -1,0 +1,19 @@
+{
+  "id": "notify",
+  "name": "通知与联动",
+  "version": "1.0.0",
+  "summary": "任务状态推送到企业微信 / Telegram / Webhook，双向联动删除",
+  "desc": "任务开始 / 完成 / 失败推到企微、Telegram、Webhook（Emby），还能在聊天里发指令；联动负责「本地删 strm → 删网盘原文件」「网盘删文件 → 清本地 strm 和刮削文件」。",
+  "icon": "shield",
+  "section": "系统",
+  "nav": "通知与联动",
+  "hash": "#/notify",
+  "prefix": "/api",
+  "backend": "backend.py",
+  "web": "web.js",
+  "builtin": true,
+  "seed_if": "meta:notify_settings|meta:link_settings",
+  "python": [],
+  "browser": [],
+  "apt": []
+}

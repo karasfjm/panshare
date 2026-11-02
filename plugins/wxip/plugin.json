@@ -1,0 +1,25 @@
+{
+  "id": "wxip",
+  "name": "企微可信IP",
+  "version": "1.0.0",
+  "summary": "公网 IP 一变，自动改企微自建应用的「企业可信 IP」",
+  "desc": "扫码登录企微管理后台，定时检测出口公网 IP，变了就进应用详情把「企业可信 IP」追加进去（保留旧的，不覆盖）。需要 playwright + Chromium，首次安装要下载约 730MB，装在 /config 卷上，容器重建不用重装。",
+  "icon": "key",
+  "section": "系统",
+  "nav": "企微可信IP",
+  "hash": "#/wxip",
+  "prefix": "/api",
+  "backend": "backend.py",
+  "web": "web.js",
+  "builtin": true,
+  "seed_if": "meta:wxip_settings",
+  "download_size": "约 730MB（Chromium 600MB + playwright 130MB）",
+  "python": ["playwright==1.47.0"],
+  "browser": ["chromium"],
+  "apt": [
+    "libnss3", "libnspr4", "libatk1.0-0", "libatk-bridge2.0-0", "libcups2",
+    "libdrm2", "libxkbcommon0", "libxcomposite1", "libxdamage1", "libxfixes3",
+    "libxrandr2", "libgbm1", "libpango-1.0-0", "libcairo2", "libasound2",
+    "libatspi2.0-0", "fonts-liberation"
+  ]
+}

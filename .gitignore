@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+config/
+strm/
+.env
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# 编辑器 / 本地 Agent 工作目录（含部署记录、内网地址，不要提交）
+.workbuddy/
+.idea/
+.vscode/
+
+# 115 登录凭据，任何位置都不要提交
+*cookies*.txt
+115-cookies.txt
+*.strm

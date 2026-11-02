@@ -1,0 +1,94 @@
+name: docker-image
+
+# 三种触发：推 main/master、打 v* 标签、手动点 Run workflow。
+# 产物：
+#   1) ghcr.io/<owner>/<repo>:latest 等多架构镜像（amd64 + arm64）
+#   2) Artifacts 里的 panshare-amd64-image（tar，可直接 docker load，无需外网拉取）
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 镜像名转小写
+        run: echo "IMAGE_NAME=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 计算标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: 构建并推送（linux/amd64, linux/arm64）
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            PIP_INDEX_URL=${{ vars.PIP_INDEX_URL || 'https://pypi.org/simple' }}
+            BASE_IMAGE=${{ vars.BASE_IMAGE || 'python:3.12-slim' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  export-tar:
+    # 给没法拉 registry 的机器准备一个可 docker load 的镜像包
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 构建 linux/amd64 并导出 tar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          tags: panshare:latest
+          outputs: type=docker,dest=/tmp/panshare-amd64.tar
+          provenance: false
+          build-args: |
+            PIP_INDEX_URL=${{ vars.PIP_INDEX_URL || 'https://pypi.org/simple' }}
+            BASE_IMAGE=${{ vars.BASE_IMAGE || 'python:3.12-slim' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panshare-amd64-image
+          path: /tmp/panshare-amd64.tar
+          if-no-files-found: error
+          retention-days: 14

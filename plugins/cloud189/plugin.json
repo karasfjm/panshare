@@ -1,0 +1,19 @@
+{
+  "id": "cloud189",
+  "name": "天翼云盘",
+  "version": "1.0.0",
+  "summary": "天翼云盘（189）扫码登录，把网盘目录生成 strm，播放时实时换直链",
+  "desc": "多账号扫码登录，token 到期自动续期；按「云端目录 → 本地目录」生成 strm，支持个人云与家庭云。播放时 /p189/play 现取直链再 302，视频流量不经过 NAS。",
+  "icon": "box",
+  "section": "工具",
+  "nav": "天翼云盘",
+  "hash": "#/tools/cloud189",
+  "prefix": "/api",
+  "backend": "backend.py",
+  "web": "web.js",
+  "builtin": true,
+  "seed_if": "rows:cloud189_accounts",
+  "python": [],
+  "browser": [],
+  "apt": []
+}

@@ -1,0 +1,80 @@
+services:
+  panshare:
+    build:
+      context: .
+      args:
+        # 国内网络可改成 https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        # 拉不到 docker.io 时换镜像站，例如 docker.m.daocloud.io/library/python:3.12-slim
+        #BASE_IMAGE: ${BASE_IMAGE:-python:3.12-slim}
+    image: panshare:latest
+    # 用别的机器构建好的镜像时，把上面的 build 段删掉，只留 image，
+    # 并改成实际名字（如 ghcr.io/yourname/panshare:latest）
+    container_name: panshare
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      # 115 登录态：**可以先空着**，起来后在网页「115 助手」里粘贴 cookies 即可
+      # （也可直接改成 P115_COOKIES: "UID=...; CID=...; SEID=...; KID=..."）
+      P115_COOKIE_FILE: /config/115-cookies.txt
+      # ===== 网页登录（账号密码由这里生成） =====
+      UI_USERNAME: "admin"        # 登录账号
+      UI_PASSWORD: "changeme"     # 登录密码，**部署前务必改掉**（留空 = 不启用登录）
+      UI_SITE_NAME: "panshare"   # 站点名
+      UI_SHOW_HINT: "1"           # 登录页提示默认账号（1/0）
+      UI_SESSION_TTL: "604800"    # 会话有效期（秒，默认 7 天）
+      # 初始监控目录（留空 = 启动后在网页「目录管理」里添加，推荐）
+      # 只影响首次启动，之后以网页管理为准；写 "0" 表示整个网盘
+      ROOT_CIDS: ""
+      # strm 里的播放地址前缀，必须是播放器能访问到的地址：
+      # 既不能写 127.0.0.1，也不要写 172.17.0.1（容器内网网关，电视/手机连不上）。
+      # 填这台 NAS 的局域网地址，例如 http://192.168.1.10:9527
+      PUBLIC_BASE_URL: "http://192.168.1.10:9527"
+      PLAY_MODE: "302"
+      # 115 接口前面有 WAF：QPS 太高会按账号返回 405，所以别调太高
+      SCAN_APP: "web"
+      API_QPS: "2"
+      SCAN_WORKERS: "2"
+      PAGE_WORKERS: "0"
+      EVENT_INTERVAL: "30"
+      FALLBACK_INTERVAL: "600"
+      RECONCILE_HOURS: "0"
+      # ===== ed2k：粘贴链接 → 离线转存 → 生成 strm =====
+      ED2K_ENABLED: "1"
+      # 转存目录：留 0 = 首次使用时自动建一个 ED2K_DIR_NAME 目录；也可在网页上改
+      ED2K_DIR_CID: "0"
+      ED2K_DIR_NAME: "最近接收"
+      # 转存文件保留时长（小时，从最后一次播放算；0 = 不清理）
+      ED2K_TTL_HOURS: "24"
+      ED2K_CLEAN_INTERVAL: "600"
+      # 115 分享转存：粘贴分享链接 → 转存 → 生成 strm
+      SHARE_ENABLED: "1"
+      # Emby 302 反代：上游 Emby 的地址（网页上也能改）
+      EMBY_ENABLED: "1"
+      EMBY_URL: "http://172.17.0.1:8096"
+      # 反代独立端口：客户端服务器地址直接填 http://<本机>:7259，不用加任何路径前缀。
+      # 0 = 关闭独立端口，改用本服务端口的 /emby。
+      # 注意：改了这里要同时改下面 ports 里的端口映射，然后重建容器
+      # （Docker 的端口映射只能在创建容器时确定）。
+      EMBY_PROXY_PORT: "7259"
+      # ===== 秒传 =====
+      # Emby 播放改写时就把还没秒传的文件先秒传掉，直接把 115 直链发给播放器。
+      # 关掉（0）则只给本服务地址，等播放器来请求时再秒传。
+      #INSTANT_PRERESOLVE: "1"
+      # 预解析最多等多久（秒）：秒传卡住时不让 PlaybackInfo 一起卡死，0 = 不限制
+      #INSTANT_PRERESOLVE_TIMEOUT: "25"
+      LOG_LEVEL: "INFO"
+    ports:
+      - "9527:9527"
+      # 反代独立端口，和 EMBY_PROXY_PORT 保持一致
+      - "7259:7259"
+    volumes:
+      - ./config:/config
+      - ./strm:/strm
+    healthcheck:
+      # 容器内部探测，别写宿主机/局域网 IP；镜像里没有 curl，用 Python 标准库探
+      test: ["CMD", "python", "/app/scripts/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

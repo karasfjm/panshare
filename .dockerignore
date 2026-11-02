@@ -1,0 +1,23 @@
+.git
+.gitignore
+.github
+__pycache__
+*.py[cod]
+*.egg-info
+.venv
+venv
+config/
+strm/
+tests/
+build.sh
+build.ps1
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+# 早期的前端脚手架（未使用），node_modules 体积很大，别进构建上下文
+webapp/
+# 115 登录凭据：绝对不要进构建上下文
+*cookies*.txt
+115-cookies.txt
