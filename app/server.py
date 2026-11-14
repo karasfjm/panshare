@@ -2502,6 +2502,27 @@ def create_proxy_app(emby: EmbyProxy) -> FastAPI:
                   openapi_url=None)
     methods = ["GET", "POST", "HEAD", "PUT", "DELETE", "OPTIONS"]
 
+    @app.api_route("/p115/play/{tail:path}", methods=["GET", "HEAD"])
+    async def proxy_p115(tail: str, request: Request):
+        # 115 的 302 换发：PlaybackInfo 改写后预加载/起播都回这里
+        # 要新鲜直链（按请求 UA 现取链后 302，UA 永远匹配不会 403）。
+        # tail 首段是 pickcode（_pickcode_from_tail 负责剥文件名/扩展名），
+        # 末段可能带 115 用户 ID，按它找回对应账号；找不到就用主账号。
+        pickcode = _pickcode_from_tail(tail)
+        eng = None
+        try:
+            segs = [x for x in (tail or "").split("/") if x]
+            if len(segs) >= 2 and segs[-1].isdigit() and emby.hub is not None:
+                eng = emby.hub.by_uid(segs[-1])
+        except Exception:  # noqa: BLE001
+            eng = None
+        api = getattr(eng, "api", None) or emby.api
+        cfg = getattr(eng, "cfg", None) or emby.cfg
+        copies = getattr(eng, "copies", None)
+        return await asyncio.to_thread(
+            _play_pickcode, cfg, api, pickcode, request, copies
+        )
+
     @app.api_route("/p189/play/{tail:path}", methods=["GET", "HEAD"])
     async def proxy_cloud189(tail: str, request: Request):
         mgr = getattr(emby, "cloud189", None)
