@@ -607,12 +607,13 @@ class EmbyProxy:
 
         user_id = self._detect_user(request, body, payload)
         origin = self._client_origin(request)
-        # 一律返回「本服务播放地址」，不做 115 直链预解析。
-        # 实测（16:22 日志）：即使预加载和起播都发 POST IsPlayback=true，
-        # 两者 UA 也不同（App 层 vs ExoPlayer），预解析直链到起播必 403。
-        # 115 f=1 直链绑定取链 UA，唯一可靠的做法是：播放器 GET 本服务
-        # 地址时按**当时的真实 UA** 现取链再 302，UA 永远匹配。
-        # 代价是每次起播多一跳本服务请求（毫秒级）。
+        # 预加载探测请求（GET 无 IsPlayback=1 / POST body IsPlayback≠true）
+        # 只拿「本服务地址」，不做 115 直链预解析：115 f=1 直链校验
+        # 「取链 UA == 请求 CDN 的 UA」，而预加载阶段的 UA 和真正起播的
+        # ExoPlayer UA 往往不同 —— 预解析链交给起播设备必 403（实测）。
+        # 预加载拿到本服务地址没关系：起播时播放器会再次请求 PlaybackInfo
+        # （POST IsPlayback=true），那时才按真实 UA 取直链。
+        prerelease = self._is_real_playback(request, body)
         changed = 0
         for source in sources:
             if not isinstance(source, dict):
@@ -630,16 +631,53 @@ class EmbyProxy:
                           path[:120], self.cloud189 is not None,
                           self._strm_rel(path))
                 continue
-            # 换成客户端可达的本服务地址；播放器 GET 它时按真实 UA 取链 302
-            url = self._swap_origin(url, origin)
+            # 预解析成 115 最终直链，把直链直接发给播放设备；
+            # 预加载探测请求除外（见上面 prerelease 注释）：
+            # 保留「本服务播放地址」并换成客户端可达的 origin，
+            # 播放器 GET 它时路由会按**当时的真实 UA** 现取链 302，
+            # UA 永远匹配，不会再 403。
+            if not prerelease:
+                url = self._swap_origin(url, origin)
+            else:
+                url = self.direct_link(url, self._header(request, "user-agent"))
             self._apply(source, url)
             changed += 1
-            log.info("Emby 播放改写（返回本服务地址，起播时按 UA 现取链）: %s -> %s",
+            log.info("Emby 播放改写%s: %s -> %s",
+                     "" if prerelease else "（预加载探测，保留本服务地址）",
                      path[:100], url[:100])
         if changed:
             # 直接播放优先，别让 Emby 再转码
             payload["PlaySessionId"] = payload.get("PlaySessionId", "")
         return payload
+
+    def _is_real_playback(self, request: Request, body: bytes) -> bool:
+        """是否是真正要起播的请求（预加载探测返回 False）。
+
+        判定：POST body 或 GET query 里 ``IsPlayback`` 为真值。播放器
+        预加载下一集时是 GET 且不带 IsPlayback=1（或 false）；真正起播时
+        一定会带 IsPlayback=true（Emby web/安卓官方客户端都如此）。
+        判不出来就当真起播 —— 宁可多解析一次，也不要给 403 的链。
+        """
+        try:
+            qs = parse_qs(urlsplit(str(request.url or "")).query)
+            if str((qs.get("IsPlayback") or [""])[0]).lower() in ("1", "true"):
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            data = json.loads(body.decode("utf-8")) if body else {}
+            if isinstance(data, dict) and (
+                data.get("IsPlayback") is True
+                or str(data.get("IsPlayback") or "").lower() == "true"
+            ):
+                return True
+            # 明确的预加载标记
+            if data.get("IsPlayback") is False:
+                return False
+        except Exception:  # noqa: BLE001 - body 不是 JSON 就当真起播
+            pass
+        # GET 且没有任何 IsPlayback 标记：按预加载探测处理
+        return str(getattr(request, "method", "POST")).upper() != "GET"
 
     def _apply(self, source: dict[str, Any], url: str) -> None:
         source["Path"] = url

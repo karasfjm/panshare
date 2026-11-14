@@ -2523,6 +2523,18 @@ def create_proxy_app(emby: EmbyProxy) -> FastAPI:
             _play_pickcode, cfg, api, pickcode, request, copies
         )
 
+    @app.api_route("/p115/instant/{sha1}", methods=["GET", "HEAD"])
+    async def proxy_p115_instant(sha1: str, request: Request):
+        # 秒传播放换发：改写后的秒传地址回这里按真实 UA 取直链 302
+        mgr = getattr(emby, "instant", None)
+        if mgr is None:
+            raise HTTPException(status_code=404, detail="秒传未启用")
+        account = str(request.query_params.get("account") or "")
+        source_account = str(request.query_params.get("source_account") or "")
+        return await asyncio.to_thread(
+            _play_instant, emby.cfg, mgr, sha1, account, request, source_account
+        )
+
     @app.api_route("/p189/play/{tail:path}", methods=["GET", "HEAD"])
     async def proxy_cloud189(tail: str, request: Request):
         mgr = getattr(emby, "cloud189", None)
