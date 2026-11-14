@@ -510,12 +510,20 @@ def _play_instant(cfg: Config, instant: Any, sha1: str, account: str,
     try:
         rec = instant.resolve(rec["sha1"], rec["size"], rec["name"], account,
                               rec["source_pickcode"], src)
-        url, headers = instant.direct_url(sha1, account)
+        url, headers = instant.direct_url(
+            sha1, account,
+            user_agent=request.headers.get("user-agent", ""),
+        )
     except (InstantError, P115Error) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     log.info("秒传播放 %s（源 %s → 账号 %s，pickcode=%s）",
              rec.get("name") or sha1[:12], src or "主账号", account,
              rec.get("pickcode"))
+    # f=1（只绑 UA）的直链：direct_url 已按请求方 UA 取链，302 过去 UA 一致，
+    # 可以直接 302；f=3（还要 Cookie）302 带不了头，才走容器中转。
+    if cfg.play_mode == "302" and not _needs_strict_headers(url):
+        return RedirectResponse(url, status_code=302,
+                                headers={"Cache-Control": "no-cache"})
     return _serve_direct(cfg, url, headers, request)
 
 
