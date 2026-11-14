@@ -230,7 +230,8 @@ class Watcher:
         if not fid or etype in IGNORED_TYPES:
             return False
         name = str(event.get("event_name") or etype)
-        log.debug("事件 #%s %s file_id=%s", event.get("id"), name, fid)
+        # 事件处理结果要让用户看得见：原来只有 debug 级，日志里一片安静
+        log.info("收到事件 #%s type=%s(%s) file_id=%s", event.get("id"), name, etype, fid)
 
         if etype in DELETE_TYPES:
             self.on_delete(fid)
@@ -243,7 +244,7 @@ class Watcher:
             # 详情查不到时，目录还能用事件数据补登记；文件没有可信 pickcode，跳过。
             node = self._node_from_event(event)
             if node is None or not node["is_dir"]:
-                log.debug("事件 %s 的节点 %s 查询不到，跳过", name, fid)
+                log.info("事件 #%s（%s）的节点 %s 查询不到，跳过", event.get("id"), name, fid)
                 return False
 
         if node["is_dir"]:
@@ -294,7 +295,7 @@ class Watcher:
             return
         parent_path = self.resolve_dir_path(node["parent_id"])
         if parent_path is None:
-            log.debug("目录 %s 不在监控范围内", node["id"])
+            log.info("目录 %s（%s）不在监控目录内，跳过", node.get("name") or node["id"], node["id"])
             return
         name = node["name"] or str(node["id"])
         rel = rel_join(parent_path, safe_component(name))
@@ -314,6 +315,7 @@ class Watcher:
     def on_file(self, node: dict[str, Any]) -> None:
         parent_path = self.resolve_dir_path(node["parent_id"])
         if parent_path is None:
+            log.info("文件 %s（%s）不在监控目录内，跳过", node.get("name") or fid, fid)
             return
         name = node["name"] or str(node["id"])
         old = self.db.get_file(node["id"])
@@ -329,7 +331,7 @@ class Watcher:
         rel = rel_join(parent_path, safe_component(name))
         pickcode = self.api.ensure_pickcode(node)
         if not pickcode:
-            log.debug("文件 %s 缺少 pickcode，跳过", node["id"])
+            log.warning("文件 %s（%s）缺少 pickcode，跳过写 strm", name, node["id"])
             return
 
         if old and old["path"] and old["path"] != rel:

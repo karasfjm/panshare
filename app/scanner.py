@@ -13,6 +13,7 @@ from typing import Any
 
 from .config import Config
 from .db import Database, strm_config_cids
+from .meta import MetaDownloader, split_meta_exts
 from .p115api import P115API, P115Error, WafBlocked
 from .strm import StrmStore, pick_strm_rel, rel_join, safe_component
 
@@ -85,6 +86,60 @@ class Scanner:
         self._prev_paths: set[str] = set()
         # 本轮是否因为 115 限流而中止（和用户手动停止区分开）
         self._throttled = False
+        # 元数据下载（按 115 STRM 配置的 download_meta / meta_exts 生效）
+        self._meta_dl = MetaDownloader(api, store)
+        # 每轮扫描前重算：cid -> (本地前缀, 元数据后缀)
+        self._meta_plan_cache: dict[int, tuple[str, frozenset[str]]] = {}
+        # 本轮累计 [downloaded, skipped, failed]
+        self._meta_dl_total = [0, 0, 0]
+
+    def _meta_plan(self) -> dict[int, tuple[str, frozenset[str]]]:
+        """按 115 STRM 配置算出「网盘 cid → (本地前缀, 元数据后缀)」。
+
+        只有 ``download_meta=1`` 且 ``meta_exts`` 非空的配置才参与；
+        一条配置可挂多个网盘路径，逐个登记。
+        """
+        source_db = self._configs_db or self.db
+        try:
+            rows = source_db.list_strm_configs()
+        except Exception:  # noqa: BLE001 - 读不到配置就当没有
+            return {}
+        roots = self.resolve_roots()
+        plan: dict[int, tuple[str, frozenset[str]]] = {}
+        for row in rows:
+            if self._account is not None and str(row.get("account") or "") != self._account:
+                continue
+            if not row.get("download_meta"):
+                continue
+            exts = split_meta_exts(row.get("meta_exts"))
+            if not exts:
+                continue
+            # path_dirs 是「网盘 cid ↔ 本地目录」的绑定表（与 base_url_map 同思路）
+            import json as _json
+            raw = str(row.get("path_dirs") or "").strip()
+            pairs: list[tuple[int, str]] = []
+            if raw:
+                try:
+                    items = _json.loads(raw)
+                except (ValueError, TypeError):
+                    items = None
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict) and str(item.get("cid") or "").isdigit():
+                            pairs.append((int(item["cid"]), str(item.get("dir") or "").strip("/")))
+            if not pairs:
+                for c in strm_config_cids(row):
+                    pairs.append((c, roots.get(c, "")))
+            # path_dirs.dir 常写成 /strm/xxx（带挂载前缀），而 store.abspath 会
+            # 再拼一次 STRM_ROOT，这里剥掉首段避免 /strm/strm/…
+            root_name = Path(str(getattr(self.store, "root", "") or "strm")).name or "strm"
+            for c, prefix in pairs:
+                if prefix == root_name:
+                    prefix = ""
+                elif prefix.startswith(root_name + "/"):
+                    prefix = prefix[len(root_name) + 1:]
+                plan[c] = (prefix, exts)
+        return plan
 
     def _dir_stamp(self, node: dict[str, Any]) -> str:
         """目录指纹：115 会在子项变动时更新目录自身的修改时间。
@@ -214,6 +269,12 @@ class Scanner:
         self._stop = False
         self._throttled = False
         self._force = bool(force)
+        # 每轮扫描前重算元数据计划（配置可能刚改过）
+        try:
+            self._meta_plan_cache = self._meta_plan()
+        except Exception:  # noqa: BLE001
+            self._meta_plan_cache = {}
+        self._meta_dl_total = [0, 0, 0]
         self.stats = ScanStats()
         self.claimed = {}
         # 还没登录 115（首次运行还没填 cookies）：直接跳过这一轮。
@@ -252,13 +313,15 @@ class Scanner:
             self._register_root(cid, prefix)
 
         queue: list[tuple[int, str, str | None]] = [(cid, prefix, None) for cid, prefix in roots.items()]
+        # 根目录的元数据后缀由 _process_dir 自己查 plan，这里不用传
         pending: set[Future] = set()
         last_log = time.time()
 
         with ThreadPoolExecutor(max_workers=max(1, self.cfg.scan_workers),
                                 thread_name_prefix="scan") as pool:
-            def submit(cid: int, path: str, stamp: str | None) -> None:
-                pending.add(pool.submit(self._process_dir, cid, path, stamp))
+            def submit(cid: int, path: str, stamp: str | None,
+                       meta: frozenset[str] | None = None) -> None:
+                pending.add(pool.submit(self._process_dir, cid, path, stamp, meta))
 
             for cid, path, stamp in queue:
                 submit(cid, path, stamp)
@@ -282,8 +345,8 @@ class Scanner:
                         self.stats.errors += 1
                         log.warning("遍历目录失败: %s", exc, exc_info=log.isEnabledFor(logging.DEBUG))
                         continue
-                    for sub_id, sub_path, sub_stamp in subdirs:
-                        submit(sub_id, sub_path, sub_stamp)
+                    for sub_id, sub_path, sub_stamp, sub_meta in subdirs:
+                        submit(sub_id, sub_path, sub_stamp, sub_meta)
                 if time.time() - last_log >= 10:
                     last_log = time.time()
                     log.info(
@@ -301,6 +364,11 @@ class Scanner:
             if full and self.cfg.delete_orphan:
                 self.stats.removed = self.prune()
         self.db.set_meta("last_scan_stats", str(self.stats.as_dict()))
+        if self._meta_dl_total[0] or self._meta_dl_total[2]:
+            log.info(
+                "元数据下载汇总：下载 %d / 跳过 %d / 失败 %d",
+                self._meta_dl_total[0], self._meta_dl_total[1], self._meta_dl_total[2],
+            )
         log.log(
             logging.WARNING if self.stats.aborted else logging.INFO,
             "%s: %s", "扫描中止" if self.stats.aborted else "扫描完成", self.stats.as_dict(),
@@ -308,12 +376,16 @@ class Scanner:
         return self.stats
 
     def _process_dir(self, cid: int, rel_path: str,
-                     stamp: str | None = None) -> list[tuple[int, str, str]]:
+                     stamp: str | None = None,
+                     meta_exts: frozenset[str] | None = None) -> list[tuple[int, str, str, frozenset[str] | None]]:
         """遍历一个目录：写库、写 strm，返回待递归的子目录。
 
         ``stamp`` 是父目录里这一项的指纹（mtime|name）。增量扫描时若与上次一致，
         说明整棵子树没动过，直接跳过 —— 这是 115 关掉事件接口后
         「定时增量」能跑得动的原因。
+
+        ``meta_exts`` 是从父目录传下来的元数据后缀（None 表示还没进入任何
+        开了元数据下载的配置目录；进入后整棵子树都继承）。
         """
         if self._stop:
             return []
@@ -321,9 +393,14 @@ class Scanner:
             self.stats.skipped += 1
             return []
 
-        subdirs: list[tuple[int, str, str]] = []
+        subdirs: list[tuple[int, str, str, frozenset[str] | None]] = []
         file_rows: list[dict[str, Any]] = []
         dir_rows: list[tuple[int, int, str, str]] = []
+        meta_nodes: list[dict[str, Any]] = []
+        if meta_exts is None:
+            # 本目录自身是某条配置的根：从 plan 取元数据后缀；否则没有
+            hit = self._meta_plan_cache.get(int(cid))
+            meta_exts = hit[1] if hit else frozenset()
 
         try:
             for node in self.api.iter_dir(
@@ -339,10 +416,16 @@ class Scanner:
                     safe = safe_component(name)
                     child_rel = rel_join(rel_path, safe)
                     dir_rows.append((node["id"], node["parent_id"], name, child_rel))
-                    subdirs.append((node["id"], child_rel, self._dir_stamp(node)))
+                    subdirs.append((node["id"], child_rel, self._dir_stamp(node),
+                                    meta_exts if meta_exts else None))
                     continue
 
                 if not self._file_ok(name):
+                    # 元数据文件不走媒体过滤：按配置的 meta_exts 单独判断
+                    if meta_exts:
+                        dot = name.rfind(".")
+                        if dot >= 0 and name[dot:].lower() in meta_exts:
+                            meta_nodes.append(node)
                     continue
                 safe = safe_component(name)
                 child_rel = rel_join(rel_path, safe)
@@ -398,6 +481,16 @@ class Scanner:
             self.db.set_dir_stamp(cid, stamp)
         self.stats.dirs += 1
         self.stats.files += len(file_rows)
+        # 元数据下载：目录遍历完顺手拉，失败不影响主流程。
+        # 目标目录就是 rel_path（本地相对路径），nfo / 海报和 strm 落在一起。
+        if meta_nodes and meta_exts:
+            try:
+                m = self._meta_dl.fetch(rel_path, meta_nodes, force=self._force)
+                self._meta_dl_total[0] += m.downloaded
+                self._meta_dl_total[1] += m.skipped
+                self._meta_dl_total[2] += m.failed
+            except Exception as exc:  # noqa: BLE001
+                log.debug("元数据下载失败（目录 %s）: %s", rel_path or "/", exc)
         return subdirs
 
     # ------------------------------------------------------------------ 子树
@@ -446,6 +539,13 @@ class Scanner:
             saved = self.stats
             saved_smart = self._smart
             saved_force = self._force
+            # 子树扫描也按最新配置拉元数据
+            try:
+                self._meta_plan_cache = self._meta_plan()
+            except Exception:  # noqa: BLE001
+                self._meta_plan_cache = {}
+            saved_meta_total = self._meta_dl_total
+            self._meta_dl_total = [0, 0, 0]
             self.stats = ScanStats()
             # 子树扫描一定是「有人明确说这里变了」，不做指纹跳过
             self._smart = False
@@ -453,7 +553,7 @@ class Scanner:
             pending: set[Future] = set()
             with ThreadPoolExecutor(max_workers=max(1, min(self.cfg.scan_workers, 4)),
                                     thread_name_prefix="subscan") as pool:
-                pending.add(pool.submit(self._process_dir, cid, rel_path))
+                pending.add(pool.submit(self._process_dir, cid, rel_path, None, None))
                 while pending:
                     done, pending = wait(pending, timeout=1.0, return_when=FIRST_COMPLETED)
                     for fut in done:
@@ -461,12 +561,21 @@ class Scanner:
                             subdirs = fut.result()
                         except Exception:  # noqa: BLE001, S112 - 单个子树失败不影响其它
                             continue
-                        for sub_id, sub_path, _stamp in subdirs:
-                            pending.add(pool.submit(self._process_dir, sub_id, sub_path))
+                        for sub_id, sub_path, _stamp, sub_meta in subdirs:
+                            pending.add(pool.submit(self._process_dir, sub_id, sub_path, None, sub_meta))
             result = self.stats
             self.stats = saved
             self._smart = saved_smart
             self._force = saved_force
+            if self._meta_dl_total[0] or self._meta_dl_total[2]:
+                log.info(
+                    "元数据下载汇总：下载 %d / 跳过 %d / 失败 %d",
+                    self._meta_dl_total[0], self._meta_dl_total[1], self._meta_dl_total[2],
+                )
+            saved_meta_total[0] += self._meta_dl_total[0]
+            saved_meta_total[1] += self._meta_dl_total[1]
+            saved_meta_total[2] += self._meta_dl_total[2]
+            self._meta_dl_total = saved_meta_total
             return result
 
     # ------------------------------------------------------------------ 清理
