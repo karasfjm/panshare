@@ -351,8 +351,11 @@ class EmbyProxy:
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"Emby 上游不可达: {exc}") from exc
 
-        # PlaybackInfo 响应要改写；其余原样透传
-        if PLAYBACKINFO_RE.search("/" + path) and request.method == "POST":
+        # PlaybackInfo 响应要改写；其余原样透传。
+        # POST 是客户端主动开播，GET 是播放器预加载下一集时的查询
+        # （Emby/iOS 客户端会先 GET /Items/{id}/PlaybackInfo?IsPlayback=true 探路），
+        # 两种都要改写，否则预加载拿到的还是本服务地址，起播时再 302 一次。
+        if PLAYBACKINFO_RE.search("/" + path) and request.method in ("POST", "GET"):
             try:
                 payload = await self._read_json(upstream_resp)
             finally:
