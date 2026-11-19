@@ -14,6 +14,7 @@ import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from p115client import P115Client
 from p115client.tool.iterdir import iterdir
@@ -203,6 +204,23 @@ def first_dict(payload: Any) -> dict[str, Any] | None:
                 break
         if not moved:
             return payload
+
+
+def _url_ttl(url: str, ttl: float) -> float:
+    """按直链自己带的过期时间折算缓存时长。
+
+    115 直链的 `t` 查询参数是绝对时间戳，比固定 TTL 准得多：按固定值缓存
+    有可能把一条只剩几十秒的链接 302 给播放器，拖进度条时直接 403。
+    提前 5 分钟丢弃（和 p115strmhelper 的缓存策略一致），配置的时长作为上限。
+    """
+    try:
+        raw = parse_qs(urlsplit(url).query).get("t", [""])[0]
+        left = float(int(raw)) - time.time() - 300
+    except (IndexError, TypeError, ValueError):
+        return ttl
+    if left <= 0:
+        return ttl
+    return max(30.0, min(ttl, left))
 
 
 class P115API:
@@ -538,6 +556,11 @@ class P115API:
         return None
 
     # ---------------------------------------------------------------- 直链
+    @staticmethod
+    def _headers_of(obj: Any) -> dict[str, str]:
+        headers = obj.get("headers") if isinstance(obj, dict) else None
+        return dict(headers) if isinstance(headers, dict) else {}
+
     def _extract_url(self, obj: Any, depth: int = 0) -> tuple[str, dict[str, str]] | None:
         if depth > 6:
             return None
@@ -552,18 +575,21 @@ class P115API:
             for key in ("url", "download_url", "downurl"):
                 value = obj.get(key)
                 if isinstance(value, str) and value.startswith("http"):
-                    headers = obj.get("headers") or {}
-                    return value, dict(headers) if isinstance(headers, dict) else {}
+                    return value, self._headers_of(obj)
                 if isinstance(value, dict):
                     inner = self._extract_url(value, depth + 1)
                     if inner:
-                        url, _ = inner
-                        headers = value.get("headers") or obj.get("headers") or {}
-                        return url, dict(headers) if isinstance(headers, dict) else {}
+                        url, headers = inner
+                        if not headers:
+                            headers = self._headers_of(value) or self._headers_of(obj)
+                        return url, headers
             for value in obj.values():
                 inner = self._extract_url(value, depth + 1)
                 if inner:
-                    return inner
+                    url, headers = inner
+                    # App / 桌面端接口的直链在 data 里，请求头挂在最外层，
+                    # 不往外捞一次，中转模式就拿不到「取链接时的 UA」
+                    return url, headers or self._headers_of(obj)
         if isinstance(obj, (list, tuple)):
             for value in obj:
                 inner = self._extract_url(value, depth + 1)
@@ -574,6 +600,12 @@ class P115API:
     def download_url(self, pickcode: str, user_agent: str = "",
                      cache_seconds: int = 600) -> tuple[str, dict[str, str]]:
         """拿一个可播放直链，带短时缓存。返回 (url, headers)。
+
+        取链接的顺序跟 MoviePilot 的 p115strmhelper 一致：先走 **App 端**接口
+        （`proapi.115.com/android/2.0/ufile/download`，pick_code 用 RSA 加密后
+        POST，和 115 自家手机客户端同一个入口），失败再退桌面端 / 浏览器 /
+        Web 端。Web 端 `files/download` 返回的链接带 `f=1`（要求取链接与下载的
+        UA 一致），也是最容易被风控挡的一个，所以放到最后。
 
         115 直链（f=1）要求「取链接时用的 UA」和「请求 CDN 的 UA」一致，
         缓存键必须带上 UA —— 播放路由会用请求方的 UA 取链接再 302。
@@ -590,6 +622,7 @@ class P115API:
                 return cached[0], cached[1]
 
         candidates = (
+            lambda: self.client.download_url_app(pickcode, user_agent=ua, app="android"),
             lambda: self.client.download_url(pickcode, user_agent=ua),
             lambda: self.client.download_url_app(pickcode, user_agent=ua, app="chrome"),
             lambda: self.client.download_url_web(pickcode, user_agent=ua),
@@ -605,8 +638,9 @@ class P115API:
             if found:
                 url, headers = found
                 url = str(url)
+                ttl = _url_ttl(url, float(max(30, cache_seconds)))
                 with self._url_lock:
-                    self._url_cache[key] = (url, headers, now + max(30, cache_seconds))
+                    self._url_cache[key] = (url, headers, now + ttl)
                 return url, headers
             errors.append(f"响应中未找到直链: {str(resp)[:200]}")
         raise P115Error("获取下载直链失败: " + " | ".join(errors))

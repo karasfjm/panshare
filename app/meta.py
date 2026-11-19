@@ -8,7 +8,9 @@
 * 通过 ``download_url``（pickcode 直链）下载，写到对应 strm 目录旁；
 * 本地已存在同名文件就跳过（绝不覆盖用户自己刮的元数据）；
 * 先写 ``.part`` 再 ``os.replace``，中断不会留下半个文件；
-* 单文件超过 ``max_bytes`` 放弃；失败只记日志，不影响 strm 主流程。
+* 单文件超过 ``max_bytes`` 放弃；下载完还要和 115 报的 size 对一遍，
+  不一致就丢弃（CDN 偶尔返回 HTTP 200 的错误页，半个 nfo 比没有更糟）；
+* 失败只记日志，不影响 strm 主流程。
 """
 
 from __future__ import annotations
@@ -134,10 +136,16 @@ class MetaDownloader:
                 time.sleep(self.retry_wait)
 
         try:
-            written = self._download(url, headers, target)
+            written = self._download(url, headers, target, _node_size(node))
         except _TooLarge:
             stats.failed += 1
             log.warning("元数据超过 %d 字节上限，已跳过: %s", self.max_bytes, name)
+            return stats
+        except _SizeMismatch:
+            stats.failed += 1
+            # 115 的 CDN 偶尔会回一个 HTTP 200 的 HTML 错误页；存下来 Emby
+            # 会当成「已刮削」，所以宁可这次不下，下次扫描再试
+            log.warning("元数据大小与 115 不一致，已丢弃: %s", name)
             return stats
         except Exception as exc:  # noqa: BLE001 - 网络问题按失败计数
             stats.failed += 1
@@ -155,7 +163,8 @@ class MetaDownloader:
             return None
         return Path(self.store.abspath(rel_join(rel_dir, safe)))
 
-    def _download(self, url: str, headers: dict[str, str], target: Path) -> int:
+    def _download(self, url: str, headers: dict[str, str], target: Path,
+                  expected: int = 0) -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_name(f".{target.name}.part")
         send_headers = {k: v for k, v in (headers or {}).items() if k.lower() != "host"}
@@ -168,12 +177,18 @@ class MetaDownloader:
                     declared = int(resp.headers.get("content-length") or 0)
                     if declared and declared > self.max_bytes:
                         raise _TooLarge()
+                    # Content-Length 对得上才下，对不上八成是错误页
+                    if expected and declared and declared != expected:
+                        raise _SizeMismatch(f"{declared} != {expected}")
                     with open(tmp, "wb") as fp:
                         for chunk in resp.iter_bytes(64 * 1024):
                             written += len(chunk)
                             if written > self.max_bytes:
                                 raise _TooLarge()
                             fp.write(chunk)
+            # 没有 Content-Length（分块传输）也要在落盘前兜住
+            if expected and written != expected:
+                raise _SizeMismatch(f"{written} != {expected}")
             os.replace(tmp, target)
             return written
         finally:
@@ -193,8 +208,24 @@ class MetaDownloader:
                 pass
 
 
+def _node_size(node: dict[str, Any]) -> int:
+    """取 115 节点上报的文件大小；没有或解析不了就返回 0（不校验）。"""
+    for key in ("size", "file_size"):
+        try:
+            value = int(node.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 0
+
+
 class _TooLarge(Exception):
     """下载内容超过上限（内部用，不往外抛）。"""
+
+
+class _SizeMismatch(Exception):
+    """下载字节数和 115 上报的 size 不一致（内部用，不往外抛）。"""
 
 
 __all__ = ["DEFAULT_MAX_BYTES", "MetaDownloader", "MetaStats", "split_meta_exts"]

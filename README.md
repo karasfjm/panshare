@@ -520,6 +520,8 @@ MediaSource 路径按顺序识别，命中即止：
 
 302 下播放 403 时先换 `proxy` 验证：proxy 正常说明是直链请求头受限，可以继续用 proxy，或用 `PLAY_URL_TEMPLATE` 指向你自己的反代。
 
+**直链从哪来**：按 App 端 → 桌面端 → 浏览器 → Web 端的顺序依次尝试。头一条是 `proapi.115.com/android/2.0/ufile/download`（`pick_code` 用 RSA 加密后 POST，和 115 手机客户端同一个入口，做法对齐 MoviePilot 的 `p115strmhelper`）；Web 端的 `files/download` 返回链接带 `f=1`，要求「取链接的 UA = 下载的 UA」，也最容易被风控挡，所以放最后兜底。缓存时长取 `PLAY_CACHE_SECONDS` 与链接自身过期时间（URL 里的 `t`）的较小值，并提前 5 分钟丢弃，避免把一条马上过期的直链 302 给播放器。
+
 ```env
 PLAY_URL_TEMPLATE=http://alist.local:5244/d/115/{pickcode}
 ```

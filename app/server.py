@@ -59,6 +59,20 @@ DEFAULT_MEDIA_EXTS = "mp4,mkv,ts,iso,rmvb,avi,mov,wmv,m2ts"
 DEFAULT_META_EXTS = "nfo,jpg,jpeg,png,srt,ass,sub,idx"
 
 
+def _meta_setting_changed(row: dict[str, Any], existing: dict[str, Any] | None) -> bool:
+    """这次保存是不是「刚打开下载元数据 / 改了元数据后缀」。
+
+    增量扫描靠目录指纹跳过没变化的目录；不清指纹的话，用户勾了开关
+    却一个 nfo 都下不到。
+    """
+    if not int(row.get("download_meta") or 0):
+        return False
+    before = existing or {}
+    if not int(before.get("download_meta") or 0):
+        return True
+    return str(row.get("meta_exts") or "") != str(before.get("meta_exts") or "")
+
+
 def _web_stamp() -> str:
     """前端资源的最新修改时间（秒），用于静态资源 URL 的版本号。"""
     newest = 0.0
@@ -2230,6 +2244,17 @@ def create_app(cfg: Config, db: Database, api: P115API, store: StrmStore,
                 a_scanner.invalidate_roots()
         except HTTPException:
             pass
+        # 刚打开元数据下载 / 改了后缀：清目录指纹，下次增量会重列目录补下，
+        # 但已有 strm 不会被重写（只多几次列目录请求）
+        if _meta_setting_changed(row, existing):
+            try:
+                target_db = db
+                if account:
+                    target_db = account_engine(account)[0]
+                target_db.clear_dir_stamps()
+                log.info("已清除目录指纹，下次增量会补下元数据文件: %s", row["name"])
+            except Exception as exc:  # noqa: BLE001 - 清指纹失败不影响保存成功
+                log.debug("清除目录指纹失败: %s", exc)
         return {"ok": True, "config": db.get_strm_config(cid)}
 
     @app.delete("/api/strm/configs/{cid}")
