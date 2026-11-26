@@ -84,6 +84,8 @@ docker compose up -d
 
 如果 GHCR 包尚未公开，先 `docker login ghcr.io`（GitHub 账号 + 带 `read:packages` 的 PAT），或在仓库 Packages 页面把包可见性改为 Public。
 
+页面「服务设置」里显示的版本号取自镜像内置值（发布 tag 或仓库根目录 `VERSION` 文件，在 CI 构建时写进二进制），**不用在 compose 里设置 `PS_VERSION`**。只有本地源码构建想单独标记版本时，才需要用这个环境变量覆盖。GHCR 只发布 `latest` 和 `v*` 版本号标签，不再发布 `sha-*` 溯源标签。
+
 想从源码自己构建：
 
 ```bash
@@ -150,7 +152,7 @@ cd backend && go vet ./... && go test ./...
 | `PS_PLUGIN_DIR` | `./plugins` | 内置插件来源目录（安装时复制到数据目录） |
 | `PS_TZ` | `Asia/Shanghai` | 时区 |
 | `PS_API_TIMEOUT` | `30` | 115 接口超时秒数 |
-| `PS_VERSION` | `dev` | 版本号，只用于展示 |
+| `PS_VERSION` | 镜像内置版本 | 可选覆盖，仅本地源码构建需要；GHCR 镜像已经把版本号编进二进制，compose 不需要设置 |
 
 需要随手改的开关（同播复制、联动删除、TG、定时巡检、映射根、扩展名……）都在数据库 `settings` 表，
 走「服务设置」页面，不用重启容器。

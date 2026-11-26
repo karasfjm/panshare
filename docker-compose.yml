@@ -30,7 +30,6 @@ services:
       # Emby 反代端口（整站反代到第一台启用的 Emby，播放走 302 直连 115）；
       # 设成 0 表示关闭反代
       PS_EMBY_PROXY_PORT: "7259"
-      PS_VERSION: "1.0.0"
     ports:
       - "9527:9527"
       - "7259:7259"
