@@ -348,7 +348,11 @@ func (a *App) cleanupStale(c *model.StrmConfig, oldRows []model.StrmFile, seen m
 			CreatedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(time.Duration(ttl) * time.Hour).Unix(),
 		}
 		if err := a.DB.CreateCleanup(x); err == nil {
-			note := fmt.Sprintf("残留 %d 个待确认清理（%d 小时内有效）", len(stale), ttl)
+			shortID := x.ID
+			if len(shortID) > 10 {
+				shortID = shortID[:10]
+			}
+			note := fmt.Sprintf("残留 %d 个待确认清理（ID %s，%d 小时内有效）", len(stale), shortID, ttl)
 			a.Event("info", "strm", c.Name+" · "+note, "")
 			return sig, count, note, 0
 		}

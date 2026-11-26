@@ -363,6 +363,8 @@ Emby 客户端 ──► http://<NAS IP>:7259 ──► 第一台启用的 Emby
 | `/ed2k <链接>` | 添加 ed2k 任务并生成 strm |
 | `/share <链接>` | 转存 115 分享并生成 strm |
 | `/find <关键字>` | 搜 strm 索引 |
+| `/cleanup` | 查看待确认的 STRM 清理计划 |
+| `/cleanup_ok <ID>` / `/cleanup_no <ID>` | 确认 / 取消清理计划（ID 见 `/cleanup` 或通知，支持前 10 位） |
 | `/link` | 联动删除对账 |
 
 **直接发链接也行**，不用加指令：消息里只要有 `ed2k://` 或 115 分享链接

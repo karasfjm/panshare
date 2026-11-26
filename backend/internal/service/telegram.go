@@ -386,6 +386,12 @@ func (a *App) commandText(text string) string {
 			fmt.Fprintf(&b, "• %s\n", r.RelPath)
 		}
 		return strings.TrimRight(b.String(), "\n")
+	case "cleanup":
+		return a.tgCleanupList()
+	case "cleanup_ok":
+		return a.tgCleanupAct(arg, true)
+	case "cleanup_no":
+		return a.tgCleanupAct(arg, false)
 	case "link":
 		if !a.Settings().DeleteEnabled {
 			return "联动删除总开关没开"

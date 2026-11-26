@@ -25,6 +25,7 @@ var tgReserved = map[string]bool{
 	"all": true, "inc": true, "full": true, "scan": true, "strm": true, "configs": true,
 	"status": true, "accounts": true, "start": true, "help": true, "find": true,
 	"link": true, "ed2k": true, "share": true,
+	"cleanup": true, "cleanup_ok": true, "cleanup_no": true,
 }
 
 // configAliases 给每条配置取一个能塞进 Telegram 命令的短代号。
@@ -103,6 +104,53 @@ func (a *App) tgConfigList(withCount bool) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// tgCleanupList 列出待确认的清理计划；ID 只展示前 10 位，指令按前缀匹配。
+func (a *App) tgCleanupList() string {
+	list := a.CleanupQueue()
+	if len(list) == 0 {
+		return "没有待确认的清理计划"
+	}
+	var b strings.Builder
+	for _, x := range list {
+		short := x.ID
+		if len(short) > 10 {
+			short = short[:10]
+		}
+		fmt.Fprintf(&b, "• %s · %d 个残留 · ID %s\n", x.ConfigName, x.Total, short)
+	}
+	b.WriteString("确认 /cleanup_ok <ID> · 取消 /cleanup_no <ID>")
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func (a *App) tgCleanupAct(arg string, approve bool) string {
+	prefix := strings.TrimSpace(arg)
+	if prefix == "" {
+		return "用法：/cleanup_ok <ID> 或 /cleanup_no <ID>，ID 见 /cleanup"
+	}
+	var matched *model.CleanupConfirmation
+	for _, x := range a.CleanupQueue() {
+		if strings.HasPrefix(x.ID, prefix) {
+			x := x
+			matched = &x
+			break
+		}
+	}
+	if matched == nil {
+		return "没有找到这个 ID 的待确认计划，发 /cleanup 看列表"
+	}
+	if approve {
+		n, err := a.ApproveCleanup(matched.ID)
+		if err != nil {
+			return err.Error()
+		}
+		return fmt.Sprintf("已确认，移除 %d 个残留", n)
+	}
+	if err := a.CancelCleanup(matched.ID); err != nil {
+		return err.Error()
+	}
+	return "已取消该清理计划"
+}
+
 // tgHelp 是指令总览。配置多的时候会超 4096 字符，调用方用 sendLong 分段发。
 func (a *App) tgHelp() string {
 	var b strings.Builder
@@ -128,6 +176,8 @@ func (a *App) tgHelp() string {
 
 	b.WriteString("【其它】\n")
 	b.WriteString("/find <关键词> 搜索索引\n")
+	b.WriteString("/cleanup 查看待确认清理计划\n")
+	b.WriteString("/cleanup_ok <ID> /cleanup_no <ID> 确认或取消清理\n")
 	b.WriteString("/link 立即跑一次联动删除对账")
 	return b.String()
 }
@@ -238,6 +288,9 @@ func (a *App) tgCommandTable() []map[string]string {
 		{"command": "ed2k", "description": "添加 ed2k 链接并生成 strm"},
 		{"command": "share", "description": "转存 115 分享并生成 strm"},
 		{"command": "find", "description": "按关键词搜索索引"},
+		{"command": "cleanup", "description": "查看待确认的清理计划"},
+		{"command": "cleanup_ok", "description": "确认清理：/cleanup_ok <ID>"},
+		{"command": "cleanup_no", "description": "取消清理：/cleanup_no <ID>"},
 		{"command": "link", "description": "跑一次联动删除对账"},
 	}
 
