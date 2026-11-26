@@ -1,0 +1,8 @@
+{
+  "id": "cloud189",
+  "name": "天翼云盘",
+  "version": "1.0.0",
+  "description": "把天翼云盘接进 STRM 工作流：多账号扫码/Cookie 登录、个人云与家庭云目录、strm 生成、播放时 302 到云盘直链。",
+  "author": "PanShare",
+  "entry": "cloud189"
+}

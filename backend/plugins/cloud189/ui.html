@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>天翼云盘 · PanShare</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#fff; --panel-soft:#fafbfc;
+    --line:#e6e8ec; --line-strong:#d5d9e0;
+    --text:#1f2329; --text-2:#5b6470; --muted:#8b929c;
+    --brand:#2f6feb; --brand-soft:#eaf1ff; --brand-line:#c9dcff;
+    --ok:#16794a; --ok-soft:#e8f6ee;
+    --warn:#9a6600; --warn-soft:#fff6e5;
+    --err:#c0362c; --err-soft:#fdeceb;
+    --purple:#6b4fd8; --purple-soft:#f0ecff;
+    --radius:12px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",
+      "Hiragino Sans GB","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+  h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+  p{margin:0}
+  .k{font-family:"SFMono-Regular",ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;
+    background:#f1f3f6;border-radius:4px;padding:1px 5px}
+  .wrap{max-width:1240px;margin:0 auto;padding:22px 24px 56px}
+
+  /* ------------------------------------------------------------ 页头 */
+  .page-head{display:flex;gap:18px;align-items:flex-start;margin-bottom:18px}
+  .page-head .text{flex:1;min-width:0}
+  .page-head h1{font-size:19px;margin-bottom:8px}
+  .page-head .desc{color:var(--text-2);font-size:12.5px;line-height:1.85;max-width:980px}
+  .head-actions{display:flex;gap:8px;flex:0 0 auto}
+
+  /* ------------------------------------------------------------ 按钮 */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--line-strong);
+    background:#fff;color:var(--text);font:inherit;font-size:13px;cursor:pointer;
+    white-space:nowrap;transition:background .15s,border-color .15s,color .15s}
+  .btn:hover{border-color:#c3c9d2;background:#fcfcfd}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.primary:hover{background:#2a63d4}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--text-2)}
+  .btn.ghost:hover{background:#f0f2f5}
+  .btn.danger{color:var(--err);border-color:#f0c8c4}
+  .btn.danger:hover{background:var(--err-soft)}
+  .btn.sm{height:28px;padding:0 10px;font-size:12px;border-radius:7px}
+  .btn.icon{width:28px;height:28px;padding:0;font-size:14px}
+
+  /* ------------------------------------------------------------ 统计卡 */
+  .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 18px;display:flex;align-items:center;gap:14px}
+  .stat .ico{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;
+    justify-content:center;font-size:18px;flex:0 0 40px}
+  .stat .ico.blue{background:#eef4ff;color:#3b74e8}
+  .stat .ico.green{background:#eaf7ef;color:#2f9e5f}
+  .stat .ico.amber{background:#fff5e6;color:#d18900}
+  .stat .ico.violet{background:#f1edff;color:#6b4fd8}
+  .stat .label{font-size:12.5px;color:var(--muted)}
+  .stat .value{font-size:18px;font-weight:600;line-height:1.35;white-space:nowrap}
+  .stat .value small{font-size:12.5px;font-weight:400;color:var(--muted);margin-left:3px}
+
+  /* ------------------------------------------------------------ 卡片 */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;margin-bottom:16px}
+  .card-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .card-head h2{font-size:14.5px}
+  .card-head .note{color:var(--muted);font-size:12px}
+
+  /* ------------------------------------------------------------ 账号 */
+  .acc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .acc{border:1px solid var(--line);border-radius:11px;padding:13px 14px;background:var(--panel-soft)}
+  .acc .top{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .acc .nm{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .acc .top .sp{flex:1}
+  .acc .line{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-2);
+    margin-bottom:4px;min-width:0}
+  .acc .line .ico{width:14px;text-align:center;color:var(--muted);flex:0 0 14px}
+  .acc .line .v{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .acc .tags{display:flex;gap:6px;flex-wrap:wrap;margin:9px 0 11px}
+  .acc .ops{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .acc.off{opacity:.72}
+
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:1px 8px;
+    border-radius:999px;background:#f1f3f6;color:var(--text-2);white-space:nowrap}
+  .tag.ok{background:var(--ok-soft);color:var(--ok)}
+  .tag.warn{background:var(--warn-soft);color:var(--warn)}
+  .tag.err{background:var(--err-soft);color:var(--err)}
+  .tag.brand{background:var(--brand-soft);color:var(--brand)}
+  .tag.purple{background:var(--purple-soft);color:var(--purple)}
+
+  .login-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .hint{color:var(--muted);font-size:12px;margin-top:10px;line-height:1.7}
+
+  /* ------------------------------------------------------------ 配置 */
+  .cfg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;
+    margin-bottom:16px}
+  .cfg{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;
+    display:flex;flex-direction:column}
+  .cfg .top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .cfg .nm{font-size:13.5px;font-weight:600;flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .cfg .line{display:flex;gap:8px;font-size:12.5px;color:var(--text-2);margin-bottom:5px;min-width:0}
+  .cfg .line .lb{color:var(--muted);flex:0 0 30px}
+  .cfg .line .v{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .cfg .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px}
+  .cfg .foot{display:flex;align-items:center;gap:6px;margin-top:auto;padding-top:10px;
+    border-top:1px dashed var(--line)}
+  .cfg .cnt{font-size:12px;color:var(--muted);margin-right:auto}
+  .cfg .foot .btn.sm{padding:0 9px}
+
+  /* ------------------------------------------------------------ 事件 */
+  .ev-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .ev-head .sp{flex:1}
+  .ev-list{display:flex;flex-direction:column}
+  .ev{display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid #f1f3f6;
+    font-size:12.5px}
+  .ev:first-child{border-top:0}
+  .ev .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--text-2)}
+  .ev .txt.err{color:var(--err)}
+  .ev .txt.warn{color:var(--warn)}
+  .ev .tm{color:var(--muted);font-size:11.5px;flex:0 0 auto;font-variant-numeric:tabular-nums}
+
+  .empty{color:var(--muted);font-size:13px;padding:14px 2px}
+  .mono{font-family:"SFMono-Regular",ui-monospace,Menlo,Consolas,monospace}
+
+  /* ------------------------------------------------------------ 弹层 */
+  .modal{position:fixed;inset:0;background:rgba(20,22,26,.38);display:none;
+    align-items:center;justify-content:center;z-index:40;padding:20px}
+  .modal.show{display:flex}
+  .modal .box{background:#fff;border-radius:16px;width:min(560px,100%);max-height:86vh;
+    display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(16,24,40,.18)}
+  .modal .box.wide{width:min(720px,100%)}
+  .modal .head{padding:15px 20px;border-bottom:1px solid var(--line);display:flex;
+    align-items:center;gap:10px;font-weight:600;font-size:14px}
+  .modal .head .sp{flex:1}
+  .modal .body{padding:16px 20px;overflow:auto}
+  .modal .foot{padding:12px 20px;border-top:1px solid var(--line);display:flex;
+    justify-content:flex-end;gap:8px}
+  .modal label.field{display:block;margin-bottom:12px}
+  .modal label.field > span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  input,select,textarea{width:100%;border:1px solid var(--line-strong);border-radius:8px;
+    padding:7px 10px;font:inherit;font-size:13px;background:#fff;color:var(--text)}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+  textarea{resize:vertical}
+
+  /* ------------------------------------------------------------ 配置表单 */
+  .modal .box.cfg{width:min(668px,100%)}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+  .form-grid.ext{grid-template-columns:1.75fr 1fr}
+  .fld{margin-bottom:14px;min-width:0}
+  .fld > .lb{display:block;font-size:12.5px;color:var(--text-2);margin-bottom:6px}
+  .fld .lb-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .fld .lb-row .lb{flex:1;font-size:12.5px;color:var(--text-2)}
+  .fld .fhint{font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:5px}
+  .inline{display:flex;gap:8px}
+  .inline input{flex:1;min-width:0}
+  .inline .btn{flex:0 0 auto}
+  input.ro,input.preview{background:#f7f8fa;color:var(--text-2)}
+  input.preview{font-family:"SFMono-Regular",ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  .switch{position:relative;display:block;width:44px;height:24px;flex:0 0 44px;margin-top:6px}
+  .switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;
+    border:0;opacity:0;cursor:pointer;z-index:2}
+  .switch .track{position:absolute;inset:0;border-radius:999px;background:#d5d9e0;
+    transition:background .18s}
+  .switch .track::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;
+    border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.25);transition:transform .18s}
+  .switch input:checked ~ .track{background:var(--brand)}
+  .switch input:checked ~ .track::after{transform:translateX(20px)}
+  .switch input:focus-visible ~ .track{outline:2px solid var(--brand-soft)}
+  .qr-box{text-align:center}
+  .qr-box .qr{display:inline-block;padding:10px;background:#fff;border:1px solid var(--line);
+    border-radius:12px;line-height:0;min-width:60px;min-height:60px}
+  .qr-box .qr svg{width:216px;height:216px;display:block}
+  .qr-box .tip{color:var(--muted);font-size:12px;margin-top:10px}
+  .qr-box .raw{margin-top:8px;font-size:11.5px;color:var(--muted);word-break:break-all}
+  .dbg{margin-top:10px;text-align:left}
+  .dbg pre{display:none;max-height:190px;overflow:auto;background:#f7f8fa;border:1px solid var(--line);
+    border-radius:8px;padding:10px;font-size:11.5px;white-space:pre-wrap;margin:6px 0 0}
+  .dbg a{font-size:12px;color:var(--brand)}
+  .dirs{display:flex;flex-direction:column;gap:2px;margin-top:8px;max-height:320px;overflow:auto}
+  .dir{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;
+    font-size:13px}
+  .dir:hover{background:#f4f6f9}
+  .dir .ic{color:var(--muted)}
+  .path-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#1f2329;
+    color:#fff;padding:9px 16px;border-radius:9px;font-size:13px;opacity:0;transition:.2s;
+    z-index:60;max-width:80vw;pointer-events:none}
+  .toast.show{opacity:.95}
+
+  @media (max-width:900px){
+    .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .page-head{flex-direction:column}
+    .head-actions{width:100%}
+  }
+
+  /* 手机：统计卡改成上下排，值那一行才有整卡宽度，日期不会顶出去 */
+  @media (max-width:560px){
+    .wrap{padding:16px 14px 44px}
+    .stats{gap:10px}
+    .stat{flex-direction:column;align-items:flex-start;gap:7px;padding:12px}
+    .stat .ico{width:30px;height:30px;flex:0 0 30px;font-size:15px;border-radius:9px}
+    .stat .label{font-size:12px}
+    .stat .value{font-size:15px}
+    .page-head h1{font-size:17px}
+    .page-head .desc{font-size:12px;line-height:1.78}
+
+    /* 账号/配置卡底部那排操作：缩小一点，必要的话整行换下去 */
+    .acc .ops,.cfg .foot{gap:5px;flex-wrap:wrap}
+    .acc .ops .btn.sm,.cfg .foot .btn.sm{padding:0 8px;font-size:11.5px}
+    .cfg .foot .cnt{flex:1 0 100%;margin:0 0 7px}
+    .card{padding:15px 14px}
+    /* auto-fill + minmax(300/330) 在 320 宽的老机型上会撑出屏幕，直接单列 */
+    .acc-grid,.cfg-grid{grid-template-columns:minmax(0,1fr);gap:10px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page-head">
+    <div class="text">
+      <h1>天翼云盘</h1>
+      <p class="desc">
+        登录天翼云盘（189）→ 选云盘目录（个人云 / 家庭云）→ 生成 strm 到本地映射目录。
+        <span class="k">strm</span> 内容 = 请求头 + <span class="k">/p189/play/&lt;账号&gt;/&lt;fileId&gt;</span>，
+        播放时由本服务实时新鲜直链再 302（直链带时效和凭据，不落盘）。<br>
+        可以登录多个账号，每条配置绑一个账号；token 快到期时用登录时保存的会话密钥自动续期，会话失效才需要重新扫码。<br>
+        增量只补新增；全量把索引里的 strm 全部重写；全新先删掉这条配置生成过的 strm（不动别人的）再从头生成。<br>
+        家庭云可以直接整选：每个家庭生成到各自同名的子目录。
+      </p>
+    </div>
+    <div class="head-actions">
+      <button class="btn" onclick="load()">↻ 刷新</button>
+      <button class="btn primary" onclick="openQR()">+ 添加账号</button>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>天翼云盘账号 <span class="tag ok" id="onlineTag">0/0 在线</span></h2>
+      <span class="note">token 剩不到 24 小时会自动续期（用登录时保存的会话密钥换新 token）；会话失效才需要重新扫码</span>
+    </div>
+    <div class="acc-grid" id="accounts"></div>
+
+    <div class="login-row">
+      <button class="btn primary" onclick="openQR()">▣ 扫码添加账号</button>
+      <button class="btn" onclick="openCookie()">⌘ 用 Cookie 登录</button>
+      <button class="btn" onclick="openToken()">✎ 手动填 token</button>
+    </div>
+    <p class="hint">
+      扫码没反应就用 Cookie 登录：浏览器登录 cloud.189.cn → F12 → Application → Cookies → 复制
+      COOKIE_LOGIN_USER 的值。扫码 / Cookie 登录会把会话密钥一起存下来，之后 token 到期能自动续期；
+      手动填的 token 没有会话密钥，到期只能重新填。
+    </p>
+  </section>
+
+  <div class="cfg-grid" id="configs"></div>
+  <div class="card" style="padding:16px 18px" id="cfgEmpty" hidden>
+    <div class="empty">还没有配置。先登录一个账号，再点下面的按钮选一个云盘目录。</div>
+    <div style="margin-top:10px"><button class="btn" onclick="newConfig()">+ 添加配置</button></div>
+  </div>
+  <div id="cfgAdd" style="margin-bottom:16px;display:none">
+    <button class="btn" onclick="newConfig()">+ 添加配置</button>
+  </div>
+
+  <section class="card">
+    <div class="ev-head">
+      <h2 style="font-size:14.5px">事件日志</h2>
+      <span class="note" style="color:var(--muted);font-size:12px">登录、配置变更、每次生成写了多少都在这里，刷新页面不会丢</span>
+      <span class="sp"></span>
+      <button class="btn sm" onclick="load()">↻ 刷新</button>
+      <button class="btn sm" onclick="clearEvents()">⨉ 清空</button>
+      <span class="note" style="color:var(--muted);font-size:12px" id="evCount"></span>
+    </div>
+    <div class="ev-list" id="events"></div>
+  </section>
+</div>
+
+<!-- 扫码 -->
+<div class="modal" id="qrModal">
+  <div class="box">
+    <div class="head"><span>扫码添加账号</span><span class="sp"></span>
+      <button class="btn ghost sm" onclick="closeModal('qrModal')">关闭</button></div>
+    <div class="body qr-box">
+      <div class="qr" id="qrBox"></div>
+      <div class="tip" id="qrTip">正在获取二维码…</div>
+      <div class="raw" id="qrRaw" style="display:none"></div>
+      <div class="dbg">
+        <a href="javascript:showQrDebug()">扫码没反应？看诊断</a>
+        <pre id="qrDebug"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Cookie -->
+<div class="modal" id="cookieModal">
+  <div class="box">
+    <div class="head"><span>用 Cookie 登录</span><span class="sp"></span>
+      <button class="btn ghost sm" onclick="closeModal('cookieModal')">关闭</button></div>
+    <div class="body">
+      <label class="field"><span>COOKIE_LOGIN_USER 或 SESSION_KEY</span>
+        <textarea id="cookieInput" rows="4" placeholder="从 cloud.189.cn 网页版 Cookie 里复制 COOKIE_LOGIN_USER 的值"></textarea>
+      </label>
+      <label class="field"><span>备注名（可空）</span>
+        <input id="cookieName" placeholder="例如：主账号">
+      </label>
+      <p class="hint">会话密钥会一起存下来，之后 token 到期可以自动续期。</p>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="closeModal('cookieModal')">取消</button>
+      <button class="btn primary" onclick="loginCookie()">保存账号</button>
+    </div>
+  </div>
+</div>
+
+<!-- token -->
+<div class="modal" id="tokenModal">
+  <div class="box">
+    <div class="head"><span>手动填 token</span><span class="sp"></span>
+      <button class="btn ghost sm" onclick="closeModal('tokenModal')">关闭</button></div>
+    <div class="body">
+      <label class="field"><span>accessToken</span>
+        <textarea id="tokenInput" rows="4" placeholder="从抓包或旧数据里拿到的 accessToken"></textarea>
+      </label>
+      <label class="field"><span>有效期（秒，可空）</span>
+        <input id="tokenExp" placeholder="留空表示未知，到期后需要重新填">
+      </label>
+      <label class="field"><span>备注名（可空）</span>
+        <input id="tokenName" placeholder="例如：备用账号">
+      </label>
+      <p class="hint">手动 token 没有会话密钥，不能自动续期。</p>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="closeModal('tokenModal')">取消</button>
+      <button class="btn primary" onclick="loginToken()">保存账号</button>
+    </div>
+  </div>
+</div>
+
+<!-- 配置编辑 -->
+<div class="modal" id="cfgModal">
+  <div class="box cfg">
+    <div class="head"><span id="cfgTitle">添加天翼云盘配置</span><span class="sp"></span>
+      <button class="btn ghost sm" onclick="closeModal('cfgModal')">✕</button></div>
+    <div class="body">
+      <div class="form-grid">
+        <div class="fld">
+          <span class="lb">配置名称</span>
+          <input id="cfgName" placeholder="例如：天翼电影">
+        </div>
+        <div class="fld">
+          <span class="lb">使用的账号</span>
+          <select id="cfgAccount" onchange="syncPreview()"></select>
+          <div class="fhint">生成、播放都走这个账号，账号不可用这条配置会报错</div>
+        </div>
+      </div>
+
+      <div class="fld">
+        <span class="lb">STRM 请求头</span>
+        <input id="cfgBase" placeholder="留空用全局地址" oninput="syncPreview()">
+        <div class="fhint">客户端（Emby / 播放器）能访问到的本服务地址</div>
+      </div>
+
+      <div class="fld">
+        <span class="lb">云端目录（个人云 / 家庭云）</span>
+        <div class="inline">
+          <input id="cfgRemote" class="ro" readonly placeholder="点右侧选择目录">
+          <button class="btn" onclick="openDir('', '', false)">📁 选择目录</button>
+        </div>
+        <div class="fhint" id="cfgRemoteHint">目录 id: -11</div>
+      </div>
+
+      <div class="fld">
+        <div class="lb-row">
+          <span class="lb">本地 STRM 输出目录（映射目录内）</span>
+          <button class="btn sm" onclick="openLocal('')">📁 选择</button>
+        </div>
+        <input id="cfgLocal" placeholder="例如：天翼">
+        <div class="fhint">填相对 STRM_ROOT 的子目录；空 = 直接放在 strm 根目录下</div>
+      </div>
+
+      <div class="fld">
+        <span class="lb">STRM 内容预览</span>
+        <input id="cfgPreview" class="preview" readonly>
+      </div>
+
+      <div class="form-grid ext">
+        <div class="fld">
+          <span class="lb">媒体文件扩展名</span>
+          <input id="cfgExts" placeholder="mp4,mkv,ts" style="font-size:12.5px">
+          <div class="fhint">命中这些后缀才生成 strm，英文逗号分隔</div>
+        </div>
+        <div class="fld">
+          <span class="lb">不过滤</span>
+          <label class="switch">
+            <input type="checkbox" id="cfgNoFilter" onchange="syncNoFilter()">
+            <span class="track"></span>
+          </label>
+          <div class="fhint">打开后云盘里所有文件都生成 strm（含图片、字幕）</div>
+        </div>
+      </div>
+
+      <div class="form-grid ext">
+        <div class="fld">
+          <span class="lb">下载元数据文件</span>
+          <label class="switch">
+            <input type="checkbox" id="cfgMeta" onchange="syncMeta()">
+            <span class="track"></span>
+          </label>
+          <div class="fhint">nfo / 海报 / 字幕直接下载到 strm 所在目录，不生成 strm</div>
+        </div>
+        <div class="fld">
+          <span class="lb">元数据扩展名</span>
+          <input id="cfgMetaExts" placeholder="nfo,jpg,srt,ass" style="font-size:12.5px">
+          <div class="fhint">命中这些后缀按元数据下载，留空用默认</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="closeModal('cfgModal')">取消</button>
+      <button class="btn primary" onclick="saveConfig()">保存配置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 本地目录选择 -->
+<div class="modal" id="localModal" style="z-index:50">
+  <div class="box">
+    <div class="head"><span>选择本地输出目录</span><span class="sp"></span>
+      <button class="btn ghost sm" onclick="closeModal('localModal')">关闭</button></div>
+    <div class="body">
+      <div class="path-bar">
+        <button class="btn sm" onclick="openLocal('')">strm 根目录</button>
+        <button class="btn sm" onclick="localUp()">↑ 上一级</button>
+        <span class="mono" id="localPath">（strm 根目录）</span>
+      </div>
+      <div class="dirs" id="localList"></div>
+      <p class="hint">只列出已经存在的子目录；新目录直接在输入框里填名字就行。</p>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="closeModal('localModal')">取消</button>
+      <button class="btn primary" onclick="useLocal()">用这个目录</button>
+    </div>
+  </div>
+</div>
+
+<!-- 目录选择 -->
+<div class="modal" id="dirModal" style="z-index:50">
+  <div class="box wide">
+    <div class="head"><span>选择网盘目录</span><span class="sp"></span>
+      <button class="btn ghost sm" onclick="closeModal('dirModal')">关闭</button></div>
+    <div class="body">
+      <div class="path-bar">
+        <button class="btn sm" onclick="openDir('', '', false)">个人云</button>
+        <button class="btn sm" onclick="openDir('fam', '家庭云', false)">家庭云</button>
+        <span id="dirPath">个人云</span>
+      </div>
+      <div class="dirs" id="dirList"></div>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="closeModal('dirModal')">取消</button>
+      <button class="btn primary" onclick="useDir()">用这个目录</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'api';
+let state = {accounts:[], configs:[], events:[], stats:{}};
+let editing = null;       // 正在编辑的配置（null = 新建）
+let currentRef = '';
+let trail = [];           // 目录面包屑，卡片上显示成 /个人云/影音 这种
+let qrTimer = null, qrSeq = 0;
+
+async function req(path, opts={}){
+  const res = await fetch(API + path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(el._t); el._t = setTimeout(()=>el.classList.remove('show'), 2600);
+}
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtTime(ms){
+  if(!ms) return '—';
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2,'0');
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' +
+    p(d.getHours()) + ':' + p(d.getMinutes());
+}
+// 只要日期：统计卡那格宽度有限，带上时分在手机上会顶出卡片
+function fmtDay(ms){
+  if(!ms) return '—';
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2,'0');
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
+}
+function fmtFull(sec){
+  if(!sec) return '';
+  const d = new Date(sec*1000);
+  const p = n => String(n).padStart(2,'0');
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' +
+    p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function closeModal(id){
+  document.getElementById(id).classList.remove('show');
+  if(id === 'qrModal') stopPoll();
+}
+function openModal(id){ document.getElementById(id).classList.add('show'); }
+
+/* ---------------------------------------------------------------- 加载 */
+async function load(){
+  try{
+    state = await req('/state');
+    renderStats(); renderAccounts(); renderConfigs(); renderEvents(); fillAccountSelect();
+  }catch(e){ toast('加载失败：' + e.message); }
+}
+function renderStats(){
+  const s = state.stats || {};
+  const cards = [
+    {ic:'👤', cls:'blue', label:'登录状态', value:(s.online||0)+'/'+(s.accounts||0), unit:'个账号'},
+    {ic:'▤', cls:'green', label:'生成配置', value:String(s.configs||0), unit:''},
+    {ic:'▷', cls:'amber', label:'已生成 strm', value:String(s.files||0), unit:''},
+    {ic:'◷', cls:'violet', label:'token 到期', value:s.next_expire?fmtDay(s.next_expire):'—', unit:''},
+  ];
+  document.getElementById('stats').innerHTML = cards.map(c=>
+    '<div class="stat"><div class="ico '+c.cls+'">'+c.ic+'</div><div>' +
+    '<div class="label">'+c.label+'</div>' +
+    '<div class="value">'+esc(c.value)+(c.unit?'<small>'+c.unit+'</small>':'')+'</div>' +
+    '</div></div>').join('');
+  document.getElementById('onlineTag').textContent = (s.online||0)+'/'+(s.accounts||0)+' 在线';
+}
+
+function renderAccounts(){
+  const box = document.getElementById('accounts');
+  if(!state.accounts.length){
+    box.innerHTML = '<div class="empty">还没有账号，点下面的「扫码添加账号」开始。</div>';
+    return;
+  }
+  box.innerHTML = state.accounts.map(a=>{
+    const left = a.logged_in
+      ? (a.expires_at
+          ? 'token ' + fmtTime(a.expires_at) +
+            (a.expired ? ' · 已过期'
+                       : a.left_days >= 1 ? ' · 剩 ' + a.left_days + ' 天'
+                       : ' · 剩 ' + a.left_hours + ' 小时')
+          : 'token 有效期未知')
+      : '还没登录';
+    const tags = [
+      a.logged_in ? '<span class="tag ok">已登录</span>' : '<span class="tag err">未登录</span>',
+      a.can_refresh
+        ? (a.auto_refresh ? '<span class="tag brand">自动续期</span>' : '<span class="tag warn">手动续期</span>')
+        : '<span class="tag">无会话密钥</span>',
+      '<span class="tag">' + a.configs + ' 条配置</span>',
+    ].join('');
+    const ops = [];
+    if(!a.is_default) ops.push('<button class="btn sm" onclick="accDefault(\'' + a.id + '\')">设为默认</button>');
+    if(a.can_refresh) ops.push('<button class="btn sm" onclick="accRefresh(\'' + a.id + '\')">续期</button>');
+    if(a.can_refresh) ops.push('<button class="btn sm" onclick="accAuto(\'' + a.id + '\',' + (!a.auto_refresh) + ')">' +
+      (a.auto_refresh ? '关续期' : '开续期') + '</button>');
+    if(a.logged_in) ops.push('<button class="btn sm" onclick="accLogout(\'' + a.id + '\')">退出</button>');
+    ops.push('<button class="btn sm danger icon" title="删除账号" onclick="accDelete(\'' + a.id + '\')">🗑</button>');
+    return '<div class="acc ' + (a.logged_in?'':'off') + '">' +
+      '<div class="top"><span class="nm">' + esc(a.name) + '</span>' +
+      (a.is_default ? '<span class="tag brand">默认</span>' : '') +
+      '<span class="sp"></span>' +
+      (a.can_refresh ? '<button class="btn ghost icon" title="立即续期" onclick="accRefresh(\'' + a.id + '\')">↻</button>' : '') +
+      '</div>' +
+      '<div class="line"><span class="ico">👤</span><span class="v">登录名　' + esc(a.login_name||'—') + '</span></div>' +
+      '<div class="line"><span class="ico">◷</span><span class="v">' + esc(left) + '</span></div>' +
+      '<div class="tags">' + tags + '</div>' +
+      '<div class="ops">' + ops.join('') + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function renderConfigs(){
+  const box = document.getElementById('configs');
+  const has = !!state.configs.length;
+  document.getElementById('cfgEmpty').hidden = has;
+  document.getElementById('cfgAdd').style.display = has ? 'block' : 'none';
+  box.innerHTML = state.configs.map(c=>
+    '<div class="cfg">' +
+      '<div class="top"><span class="nm">' + esc(c.name) + '</span>' +
+        '<button class="btn ghost icon" title="编辑" onclick="editConfig(\'' + c.id + '\')">✎</button></div>' +
+      '<div class="line"><span class="lb">源</span><span class="v">' + esc(c.remote_path||'根目录') + '</span></div>' +
+      '<div class="line"><span class="lb">目标</span><span class="v mono">' +
+        esc(state.strm_root) + (c.local_dir ? '/' + esc(c.local_dir) : '') + '</span></div>' +
+      '<div class="line"><span class="lb">后缀</span><span class="v">' +
+        esc(c.no_filter ? '不过滤（全部文件）' : (c.include_exts||'')) + '</span></div>' +
+      (c.download_meta ? '<div class="line"><span class="lb">元数据</span><span class="v">下载到本地 · ' +
+        esc(c.meta_exts||'') + '</span></div>' : '') +
+      '<div class="tags"><span class="tag">' + esc(c.account_name||'账号已删除') + '</span>' +
+        (c.is_family ? '<span class="tag purple">家庭云</span>' : '') +
+        (c.last_message ? '<span class="tag">' + esc(c.last_message) + '</span>' : '') + '</div>' +
+      '<div class="foot"><span class="cnt">' + (c.files||0) + ' 个文件</span>' +
+        '<button class="btn sm" onclick="runConfig(\'' + c.id + '\',\'inc\')">▷ 增量</button>' +
+        '<button class="btn sm" onclick="runConfig(\'' + c.id + '\',\'full\')">↻ 全量</button>' +
+        '<button class="btn sm" onclick="runConfig(\'' + c.id + '\',\'rebuild\')">✦ 全新</button>' +
+        '<button class="btn sm danger icon" title="删除配置" onclick="delConfig(\'' + c.id + '\')">🗑</button>' +
+      '</div></div>').join('');
+}
+
+function renderEvents(){
+  const evs = state.events || [];
+  document.getElementById('evCount').textContent = evs.length ? '最近 ' + evs.length + ' 条' : '';
+  const box = document.getElementById('events');
+  if(!evs.length){ box.innerHTML = '<div class="empty">还没有事件</div>'; return; }
+  box.innerHTML = evs.slice(0, 60).map(e=>
+    '<div class="ev"><span class="tag ' +
+      (e.level==='err'?'err':e.level==='warn'?'warn':'brand') + '">' + esc(e.kind||'事件') + '</span>' +
+      '<span class="txt ' + (e.level==='err'?'err':e.level==='warn'?'warn':'') + '">' + esc(e.text) + '</span>' +
+      '<span class="tm">' + fmtFull(e.at) + '</span></div>').join('');
+}
+
+function fillAccountSelect(){
+  const sel = document.getElementById('cfgAccount');
+  sel.innerHTML = state.accounts.map(a=>
+    '<option value="' + a.id + '">' + esc(a.name) + (a.logged_in?'':'（未登录）') + '</option>').join('');
+}
+
+/* ---------------------------------------------------------------- 扫码 */
+async function openQR(){
+  openModal('qrModal');
+  document.getElementById('qrBox').innerHTML = '';
+  document.getElementById('qrRaw').style.display = 'none';
+  document.getElementById('qrDebug').style.display = 'none';
+  document.getElementById('qrDebug').textContent = '';
+  document.getElementById('qrTip').textContent = '正在获取二维码…';
+  try{
+    const r = await req('/login/qr',{method:'POST'});
+    if(r.svg){ document.getElementById('qrBox').innerHTML = r.svg; }
+    else {
+      const raw = document.getElementById('qrRaw');
+      raw.style.display='block'; raw.textContent = r.content;
+    }
+    // 取二维码期间用户可能已经把弹层关了，别再起轮询
+    if(!document.getElementById('qrModal').classList.contains('show')) return;
+    document.getElementById('qrTip').textContent = '请用天翼云盘 App 扫码（2 分钟内有效）';
+    pollQR(r.uuid);
+  }catch(e){ document.getElementById('qrTip').textContent = '获取失败：' + e.message; }
+}
+function stopPoll(){
+  qrSeq++;                       // 让已排队的回调失效，避免关掉弹层后还在后台轮询
+  if(qrTimer){ clearTimeout(qrTimer); qrTimer = null; }
+}
+function pollQR(uuid){
+  stopPoll();
+  const seq = qrSeq;
+  const path = '/login/qr?uuid=' + encodeURIComponent(uuid);
+  let fails = 0;
+  const tick = (i)=>{
+    if(seq !== qrSeq) return;
+    if(i >= 90){ document.getElementById('qrTip').textContent = '二维码已过期，关掉重开一次'; return; }
+    qrTimer = setTimeout(async ()=>{
+      if(seq !== qrSeq) return;
+      try{
+        const r = await req(path);
+        if(r.status === 'ok'){
+          document.getElementById('qrTip').textContent = '登录成功：' + r.account;
+          stopPoll(); closeModal('qrModal'); toast('登录成功：' + r.account); load(); return;
+        }
+        fails = 0;
+        document.getElementById('qrTip').textContent =
+          '等待确认…（已 ' + ((i+1)*2) + ' 秒）扫码后请在 App 里点「确认登录」';
+      }catch(e){
+        fails++;
+        document.getElementById('qrTip').textContent = '轮询失败（' + fails + '/3）：' + e.message;
+        if(fails >= 3){ toast('登录轮询失败：' + e.message); return; }
+      }
+      tick(i+1);
+    }, 2000);
+  };
+  tick(0);
+}
+async function showQrDebug(){
+  const pre = document.getElementById('qrDebug');
+  if(pre.style.display === 'block'){ pre.style.display='none'; return; }
+  pre.style.display='block'; pre.textContent='加载中…';
+  try{
+    const r = await req('/login/debug');
+    const logs = (r.log || []).slice().reverse();
+    pre.textContent = logs.length
+      ? logs.map(l=>'[' + new Date(l.at).toLocaleTimeString() + '] ' + l.result + '  uuid=…' + l.uuid + '\n  ' + l.body).join('\n\n')
+      : '还没有轮询记录。';
+  }catch(e){ pre.textContent = '取诊断失败：' + e.message; }
+}
+
+/* ---------------------------------------------------------------- 登录 */
+function openCookie(){ openModal('cookieModal'); }
+async function loginCookie(){
+  const sk = document.getElementById('cookieInput').value.trim();
+  const name = document.getElementById('cookieName').value.trim();
+  if(!sk){ toast('请先粘贴 Cookie'); return; }
+  try{
+    const r = await req('/login/cookie',{method:'POST',body:JSON.stringify({session_key:sk,name:name})});
+    document.getElementById('cookieInput').value='';
+    closeModal('cookieModal'); toast('账号已保存：' + r.account); load();
+  }catch(e){ toast(e.message); }
+}
+function openToken(){ openModal('tokenModal'); }
+async function loginToken(){
+  const token = document.getElementById('tokenInput').value.trim();
+  const name = document.getElementById('tokenName').value.trim();
+  const exp = parseInt(document.getElementById('tokenExp').value.trim() || '0', 10) || 0;
+  if(!token){ toast('请先填 token'); return; }
+  try{
+    const r = await req('/login/token',{method:'POST',body:JSON.stringify({token:token,name:name,expires_in:exp})});
+    document.getElementById('tokenInput').value='';
+    closeModal('tokenModal'); toast('账号已保存：' + r.account); load();
+  }catch(e){ toast(e.message); }
+}
+
+/* ---------------------------------------------------------------- 账号操作 */
+async function accDefault(id){
+  try{ await req('/accounts/' + id + '/default',{method:'POST'}); toast('已设为默认'); load(); }
+  catch(e){ toast(e.message); }
+}
+async function accRefresh(id){
+  try{ await req('/accounts/' + id + '/refresh',{method:'POST'}); toast('已续期'); load(); }
+  catch(e){ toast(e.message); }
+}
+async function accAuto(id, on){
+  try{ await req('/accounts/' + id + '/autorefresh',{method:'POST',body:JSON.stringify({enabled:on})});
+    toast(on?'已开启自动续期':'已关闭自动续期'); load(); }
+  catch(e){ toast(e.message); }
+}
+async function accLogout(id){
+  if(!confirm('退出登录？token 会被清掉，账号卡片和它的配置保留。')) return;
+  try{ await req('/accounts/' + id + '/logout',{method:'POST'}); toast('已退出'); load(); }
+  catch(e){ toast(e.message); }
+}
+async function accDelete(id){
+  if(!confirm('删除这个账号？它名下的生成配置会一起删掉（已生成的 strm 保留）。')) return;
+  try{ await req('/accounts/' + id,{method:'DELETE'}); toast('已删除'); load(); }
+  catch(e){ toast(e.message); }
+}
+
+/* ---------------------------------------------------------------- 配置 */
+function newConfig(){
+  if(!state.accounts.length){ toast('请先添加账号'); return; }
+  editing = null;
+  document.getElementById('cfgTitle').textContent = '添加天翼云盘配置';
+  document.getElementById('cfgName').value = '';
+  document.getElementById('cfgLocal').value = '';
+  document.getElementById('cfgBase').value = '';
+  document.getElementById('cfgExts').value = state.ext_default || 'mp4,mkv,ts';
+  document.getElementById('cfgNoFilter').checked = false;
+  document.getElementById('cfgMeta').checked = false;
+  document.getElementById('cfgMetaExts').value = state.meta_ext_default || 'nfo,jpg,jpeg,png,srt,ass,ssa,sub,idx,vtt,txt';
+  currentRef = ''; trail = [];
+  fillAccountSelect();
+  syncCfgRemote(); syncNoFilter(); syncMeta(); syncPreview();
+  openModal('cfgModal');
+}
+function editConfig(id){
+  const c = state.configs.find(x=>x.id===id);
+  if(!c) return;
+  editing = c;
+  document.getElementById('cfgTitle').textContent = '编辑天翼云盘配置';
+  document.getElementById('cfgName').value = c.name;
+  document.getElementById('cfgLocal').value = c.local_dir || '';
+  document.getElementById('cfgBase').value = c.base_url || '';
+  document.getElementById('cfgExts').value = c.include_exts || '';
+  document.getElementById('cfgNoFilter').checked = !!c.no_filter;
+  document.getElementById('cfgMeta').checked = !!c.download_meta;
+  document.getElementById('cfgMetaExts').value = c.meta_exts || state.meta_ext_default || '';
+  fillAccountSelect();
+  document.getElementById('cfgAccount').value = c.account_id;
+  currentRef = c.remote_ref || '';
+  // 面包屑：老数据里可能是「根目录」，也统一成 /个人云 或 /家庭云 开头
+  trail = (c.remote_path || '').split('/').filter(Boolean).filter(x=>x !== '根目录');
+  if(currentRef && currentRef.indexOf('fam:') === 0 && trail[0] !== '家庭云') trail.unshift('家庭云');
+  syncCfgRemote(); syncNoFilter(); syncMeta(); syncPreview();
+  openModal('cfgModal');
+}
+// 面包屑统一带顶层层名：个人云的显示成 /个人云/影音，家庭云的显示成 /家庭云/xxx
+function trailLabel(){
+  if(!trail.length) return '个人云';
+  const top = trail[0];
+  if(top === '个人云' || top === '家庭云') return '/' + trail.join('/');
+  return (currentRef.indexOf('fam') === 0 ? '/家庭云/' : '/个人云/') + trail.join('/');
+}
+// 云端目录输入框里的名字：没选就是个人云根，整个家庭云列表显示「家庭云（全部）」
+function cfgRefLabel(){
+  if(!currentRef) return '个人云';
+  if(currentRef === 'fam') return '家庭云（全部）';
+  return trailLabel();
+}
+function syncCfgRemote(){
+  document.getElementById('cfgRemote').value = cfgRefLabel();
+  document.getElementById('cfgRemoteHint').textContent = '目录 id: ' + (currentRef || '-11');
+}
+// STRM 内容预览：和真实写盘用同一套拼接规则，改请求头/换账号能立刻看到结果
+function previewURL(){
+  const prefix = state.play_prefix || '/api/plugins/cloud189/proxy';
+  let base = (document.getElementById('cfgBase').value || '').trim();
+  if(!base) base = (state.base_url || '').trim();
+  base = base.replace(/\/+$/, '');
+  const acc = document.getElementById('cfgAccount').value || '账号id';
+  let u = base + prefix + '/play/' + acc;
+  if(currentRef && currentRef.indexOf('fam:') === 0) u += '/fam/' + currentRef.split(':')[1];
+  return u + '/1234567890123/' + encodeURIComponent('示例影片.mkv');
+}
+function syncPreview(){
+  document.getElementById('cfgPreview').value = previewURL();
+}
+function syncMeta(){
+  const on = document.getElementById('cfgMeta').checked;
+  const el = document.getElementById('cfgMetaExts');
+  el.disabled = !on;
+  el.style.opacity = on ? 1 : .5;
+}
+function syncNoFilter(){
+  const on = document.getElementById('cfgNoFilter').checked;
+  document.getElementById('cfgExts').disabled = on;
+  document.getElementById('cfgExts').style.opacity = on ? .5 : 1;
+}
+async function saveConfig(){
+  const body = {
+    name: document.getElementById('cfgName').value.trim(),
+    account_id: document.getElementById('cfgAccount').value,
+    remote_ref: currentRef,
+    remote_path: cfgRefLabel(),
+    local_dir: document.getElementById('cfgLocal').value.trim(),
+    base_url: document.getElementById('cfgBase').value.trim(),
+    no_filter: document.getElementById('cfgNoFilter').checked,
+    include_exts: document.getElementById('cfgExts').value.trim(),
+    download_meta: document.getElementById('cfgMeta').checked,
+    meta_exts: document.getElementById('cfgMetaExts').value.trim(),
+  };
+  if(editing) body.id = editing.id;
+  try{
+    const r = await req('/configs',{method:'POST',body:JSON.stringify(body)});
+    closeModal('cfgModal');
+    toast('已保存，开始生成…');
+    await req('/configs/' + r.config.id + '/run?mode=full',{method:'POST'});
+    setTimeout(load, 1200);
+  }catch(e){ toast(e.message); }
+}
+async function runConfig(id, mode){
+  try{
+    await req('/configs/' + id + '/run?mode=' + mode,{method:'POST'});
+    toast(mode==='inc'?'开始增量生成':mode==='rebuild'?'开始全新生成':'开始全量生成');
+    setTimeout(load, 1500);
+  }catch(e){ toast(e.message); }
+}
+async function delConfig(id){
+  if(!confirm('删除这条配置？（已生成的 strm 保留）')) return;
+  try{ await req('/configs/' + id,{method:'DELETE'}); toast('已删除'); load(); }
+  catch(e){ toast(e.message); }
+}
+async function clearEvents(){
+  if(!confirm('清空事件日志？')) return;
+  try{ await req('/events',{method:'DELETE'}); load(); }catch(e){ toast(e.message); }
+}
+
+/* ---------------------------------------------------------------- 目录 */
+async function openDir(ref, name, push){
+  const acc = document.getElementById('cfgAccount').value;
+  if(!acc){ toast('请先添加账号'); return; }
+  try{
+    const r = await req('/dirs?account_id=' + encodeURIComponent(acc) + '&ref=' + encodeURIComponent(ref||''));
+    currentRef = ref || '';
+    // 面包屑：往下点一层就往后接一段；点「个人云 / 家庭云」则重新起头
+    if(push){ trail.push(name); }
+    else if(!ref){ trail = []; }
+    else if(ref === 'fam'){ trail = ['家庭云']; }
+    else { trail = name ? [name] : []; }
+    document.getElementById('dirPath').textContent = currentRef ? trailLabel() : '个人云';
+    const list = document.getElementById('dirList');
+    if(!r.dirs.length){ list.innerHTML = '<div class="empty">这个目录下没有子目录</div>'; }
+    else {
+      list.innerHTML = r.dirs.map(d=>'<div class="dir" data-id="' + esc(d.id) + '" data-name="' + esc(d.name) + '">' +
+        '<span class="ic">📁</span><span>' + esc(d.name) + '</span></div>').join('');
+      list.querySelectorAll('.dir').forEach(el=>{
+        el.onclick = ()=> openDir(el.dataset.id, el.dataset.name, true);
+      });
+    }
+    openModal('dirModal');
+  }catch(e){ toast(e.message); }
+}
+function useDir(){
+  // 个人云根、整个家庭云都可以直接选（ref 为空 / 为 fam）
+  closeModal('dirModal');
+  syncCfgRemote(); syncPreview();
+}
+
+/* ---------------------------------------------------------------- 本地目录 */
+let localPath = '';
+async function openLocal(path){
+  await loadLocal(path || '');
+  openModal('localModal');
+}
+async function loadLocal(p){
+  try{
+    const r = await req('/locals?path=' + encodeURIComponent(p || ''));
+    localPath = r.path || '';
+    document.getElementById('localPath').textContent = localPath ? '/' + localPath : '（strm 根目录）';
+    const list = document.getElementById('localList');
+    const dirs = r.dirs || [];
+    list.innerHTML = dirs.length
+      ? dirs.map(d=>'<div class="dir" data-n="' + esc(d) + '"><span class="ic">📁</span><span>' +
+          esc(d) + '</span></div>').join('')
+      : '<div class="empty">这个目录下没有子目录</div>';
+    list.querySelectorAll('.dir').forEach(el=>{
+      el.onclick = ()=> loadLocal((localPath ? localPath + '/' : '') + el.dataset.n);
+    });
+  }catch(e){ toast(e.message); }
+}
+function localUp(){
+  if(!localPath) return;
+  const parts = localPath.split('/');
+  parts.pop();
+  loadLocal(parts.join('/'));
+}
+function useLocal(){
+  document.getElementById('cfgLocal').value = localPath;
+  closeModal('localModal');
+}
+
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape') document.querySelectorAll('.modal.show').forEach(m=>m.classList.remove('show'));
+});
+load();
+</script>
+</body>
+</html>

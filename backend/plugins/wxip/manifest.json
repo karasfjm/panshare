@@ -1,0 +1,8 @@
+{
+  "id": "wxip",
+  "name": "动态企微可信IP",
+  "version": "1.0.0",
+  "description": "公网 IP 一变就自动更新企业微信自建应用的「企业可信IP」。扫码登录企微管理后台，可选 6 路 IP 探测容灾、 agent 自动发现、定时检测与变更通知。",
+  "author": "PanShare",
+  "entry": "wxip"
+}
