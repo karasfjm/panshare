@@ -71,10 +71,25 @@ frontend/
 
 ## 快速开始（Docker）
 
+镜像由 GitHub Actions 构建并发布到 GHCR（`ghcr.io/karasfjm/panshare`），tag 为 `latest` 与 `v*` 版本号：
+
 ```bash
-cd panshare-go
+mkdir panshare-go && cd panshare-go
+# 直接下载 compose；也可以从仓库根目录复制
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/karasfjm/panshare/main/docker-compose.yml
 # 先改一下要写进 strm 的地址，必须是播放器能访问到的
 export PS_PUBLIC_BASE_URL=http://192.168.1.10:9527
+docker compose up -d
+```
+
+如果 GHCR 包尚未公开，先 `docker login ghcr.io`（GitHub 账号 + 带 `read:packages` 的 PAT），或在仓库 Packages 页面把包可见性改为 Public。
+
+想从源码自己构建：
+
+```bash
+git clone https://github.com/karasfjm/panshare.git
+cd panshare
+# 取消 docker-compose.yml 里 build 段的注释
 docker compose up -d --build
 ```
 

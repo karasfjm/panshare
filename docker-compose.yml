@@ -1,5 +1,6 @@
 services:
   panshare:
+    # 从源码本地构建时，取消下面 build 段的注释（会覆盖上面的 image）
     #build:
       #context: .
       #args:
@@ -7,7 +8,7 @@ services:
         # 拉不动依赖时改这两个（海外机器换成官方源）
         #GOPROXY: https://goproxy.cn,direct
         #NPM_REGISTRY: https://registry.npmmirror.com
-    image: panshare:latest
+    image: ghcr.io/karasfjm/panshare:latest
     container_name: panshare
     restart: unless-stopped
     network_mode: bridge
