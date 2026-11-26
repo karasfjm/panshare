@@ -13,23 +13,30 @@ import (
 )
 
 type configBody struct {
-	Name          string           `json:"name"`
-	AccountID     string           `json:"account_id"`
-	Paths         []model.StrmPath `json:"paths"`
-	RemoteID      string           `json:"remote_id"`
-	RemotePath    string           `json:"remote_path"`
-	LocalDir      string           `json:"local_dir"`
-	Mode          string           `json:"mode"`
-	IncludeExts   string           `json:"include_exts"`
-	MetaExts      string           `json:"meta_exts"`
-	StrmBase      string           `json:"strm_base"`
-	AllFiles      bool             `json:"all_files"`
-	WatchEnabled  bool             `json:"watch_enabled"`
-	WatchDelaySec int              `json:"watch_delay_sec"`
-	WatchInterval int              `json:"watch_interval"`
-	SchedEnabled  bool             `json:"sched_enabled"`
-	SchedMinutes  int              `json:"sched_minutes"`
-	DownloadMeta  bool             `json:"download_meta"`
+	Name            string           `json:"name"`
+	AccountID       string           `json:"account_id"`
+	Paths           []model.StrmPath `json:"paths"`
+	RemoteID        string           `json:"remote_id"`
+	RemotePath      string           `json:"remote_path"`
+	LocalDir        string           `json:"local_dir"`
+	Mode            string           `json:"mode"`
+	IncludeExts     string           `json:"include_exts"`
+	MetaExts        string           `json:"meta_exts"`
+	StrmBase        string           `json:"strm_base"`
+	AllFiles        bool             `json:"all_files"`
+	OverwriteMode   string           `json:"overwrite_mode"`
+	ExcludeKeywords string           `json:"exclude_keywords"`
+	MinFileSizeMB   int              `json:"min_file_size_mb"`
+	SkipPending     bool             `json:"skip_pending"`
+	PendingDirs     string           `json:"pending_dirs"`
+	Concurrency     int              `json:"concurrency"`
+	CronFull        string           `json:"cron_full"`
+	WatchEnabled    bool             `json:"watch_enabled"`
+	WatchDelaySec   int              `json:"watch_delay_sec"`
+	WatchInterval   int              `json:"watch_interval"`
+	SchedEnabled    bool             `json:"sched_enabled"`
+	SchedMinutes    int              `json:"sched_minutes"`
+	DownloadMeta    bool             `json:"download_meta"`
 }
 
 func (s *Server) listConfigs(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +58,10 @@ func (s *Server) listConfigs(w http.ResponseWriter, r *http.Request) {
 			"remote_id": c.RemoteID, "remote_path": c.RemotePath, "local_dir": c.LocalDir,
 			"mode": c.Mode, "include_exts": c.IncludeExts, "meta_exts": c.MetaExts,
 			"strm_base": c.StrmBase, "all_files": c.AllFiles,
+			"overwrite_mode": c.OverwriteMode, "exclude_keywords": c.ExcludeKeywords,
+			"min_file_size_mb": c.MinFileSizeMB, "skip_pending": c.SkipPending,
+			"pending_dirs": c.PendingDirs, "concurrency": c.Concurrency,
+			"cron_full": c.CronFull, "cleanup_stale_count": c.CleanupStaleCount,
 			"watch_enabled": c.WatchEnabled, "watch_delay_sec": c.WatchDelaySec,
 			"watch_interval": c.WatchInterval, "last_check_at": c.LastCheckAt,
 			"sched_enabled": c.SchedEnabled, "sched_minutes": c.SchedMinutes,
@@ -108,6 +119,9 @@ func (s *Server) createConfig(w http.ResponseWriter, r *http.Request) {
 	if b.Mode == "" {
 		b.Mode = "pickcode"
 	}
+	if b.OverwriteMode != "always" && b.OverwriteMode != "never" {
+		b.OverwriteMode = "always"
+	}
 	c := model.StrmConfig{
 		ID: fmt.Sprintf("c%d", time.Now().UnixNano()), Name: strings.TrimSpace(b.Name), AccountID: b.AccountID,
 		Paths:       paths,
@@ -116,7 +130,10 @@ func (s *Server) createConfig(w http.ResponseWriter, r *http.Request) {
 		LocalDir:    paths[0].LocalDir,
 		Mode:        b.Mode,
 		IncludeExts: b.IncludeExts, MetaExts: b.MetaExts, StrmBase: strings.TrimSpace(b.StrmBase),
-		AllFiles:     b.AllFiles,
+		AllFiles:      b.AllFiles,
+		OverwriteMode: b.OverwriteMode, ExcludeKeywords: b.ExcludeKeywords,
+		MinFileSizeMB: b.MinFileSizeMB, SkipPending: b.SkipPending, PendingDirs: b.PendingDirs,
+		Concurrency: b.Concurrency, CronFull: b.CronFull,
 		WatchEnabled: b.WatchEnabled, WatchDelaySec: b.WatchDelaySec, WatchInterval: b.WatchInterval,
 		SchedEnabled: b.SchedEnabled, SchedMinutes: b.SchedMinutes, DownloadMeta: b.DownloadMeta,
 	}
@@ -150,7 +167,11 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 		"name": "name", "account_id": "account_id", "remote_id": "remote_id",
 		"remote_path": "remote_path", "local_dir": "local_dir", "mode": "mode",
 		"include_exts": "include_exts", "meta_exts": "meta_exts", "strm_base": "strm_base",
-		"all_files":     "all_files",
+		"all_files":      "all_files",
+		"skip_pending":   "skip_pending",
+		"overwrite_mode": "overwrite_mode", "exclude_keywords": "exclude_keywords",
+		"pending_dirs": "pending_dirs", "cron_full": "cron_full",
+		"min_file_size_mb": "min_file_size_mb", "concurrency": "concurrency",
 		"watch_enabled": "watch_enabled", "watch_delay_sec": "watch_delay",
 		"watch_interval": "watch_interval",
 		"sched_enabled":  "sched_enabled", "sched_minutes": "sched_minutes",
@@ -163,14 +184,14 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		switch col {
-		case "all_files", "watch_enabled", "sched_enabled", "download_meta":
+		case "all_files", "watch_enabled", "sched_enabled", "download_meta", "skip_pending":
 			b, _ := v.(bool)
 			if b {
 				fields[col] = 1
 			} else {
 				fields[col] = 0
 			}
-		case "watch_delay", "sched_minutes", "watch_interval":
+		case "watch_delay", "sched_minutes", "watch_interval", "min_file_size_mb", "concurrency":
 			n, _ := v.(float64)
 			fields[col] = int(n)
 		case "strm_base":
@@ -178,6 +199,13 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 		default:
 			fields[col] = fmt.Sprint(v)
 		}
+	}
+	if v, ok := fields["overwrite_mode"]; ok {
+		mode := fmt.Sprint(v)
+		if mode != "always" && mode != "never" {
+			mode = "always"
+		}
+		fields["overwrite_mode"] = mode
 	}
 	// 路径映射整组替换；顺手把老字段同步成第一条，兼容只读老字段的地方
 	if raw, ok := body["paths"]; ok {
@@ -284,4 +312,28 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"files": s.app.DB.SearchFiles(q, 200)})
+}
+
+// ---------------------------------------------------------------- 清理确认队列
+
+func (s *Server) listCleanups(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"cleanups": s.app.CleanupQueue()})
+}
+
+func (s *Server) approveCleanup(w http.ResponseWriter, r *http.Request) {
+	n, err := s.app.ApproveCleanup(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.app.Event("info", "strm", fmt.Sprintf("已确认清理，移除 %d 个残留 strm", n), "")
+	writeJSON(w, map[string]any{"ok": true, "removed": n})
+}
+
+func (s *Server) cancelCleanup(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.CancelCleanup(r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }

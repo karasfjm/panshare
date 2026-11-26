@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api, ago, fmtSize } from '../lib/api'
 import { toast, toastError } from '../lib/toast'
-import type { Account, StrmConfig } from '../lib/types'
+import type { Account, CleanupConfirmation, StrmConfig } from '../lib/types'
 import AppModal from '../components/AppModal.vue'
 import DirPicker from '../components/DirPicker.vue'
 import LocalDir from '../components/LocalDir.vue'
@@ -19,6 +19,7 @@ const strmRoot = ref('/strm')
 const baseURL = ref('')
 const defaultExts = ref('')
 const defaultMetaExts = ref('')
+const cleanups = ref<CleanupConfirmation[]>([])
 const loading = ref(false)
 let timer: number | undefined
 
@@ -32,6 +33,13 @@ const form = reactive({
   meta_exts: '',
   strm_base: '',
   all_files: false,
+  overwrite_mode: 'always' as 'always' | 'never',
+  exclude_keywords: '',
+  min_file_size_mb: 0,
+  skip_pending: false,
+  pending_dirs: '待整理,待归类',
+  concurrency: 8,
+  cron_full: '',
   watch_enabled: false,
   watch_delay_sec: 30,
   watch_interval: 60,
@@ -82,14 +90,16 @@ const previewURL = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const [c, a, s] = await Promise.all([
+    const [c, a, s, q] = await Promise.all([
       api.get<{ configs: StrmConfig[] }>('/strm/configs'),
       api.get<{ accounts: Account[] }>('/accounts'),
       api.get<{
         settings: { default_exts?: string; default_meta_exts?: string; public_base_url?: string }
         derived: { strm_root: string; base_url: string }
       }>('/settings'),
+      api.get<{ cleanups: CleanupConfirmation[] }>('/strm/cleanups'),
     ])
+    cleanups.value = q.cleanups || []
     configs.value = c.configs || []
     accounts.value = a.accounts || []
     strmRoot.value = s.derived.strm_root || '/strm'
@@ -137,6 +147,13 @@ function create() {
     meta_exts: extList(defaultMetaExts.value),
     strm_base: '',
     all_files: false,
+    overwrite_mode: 'always',
+    exclude_keywords: '',
+    min_file_size_mb: 0,
+    skip_pending: false,
+    pending_dirs: '待整理,待归类',
+    concurrency: 8,
+    cron_full: '',
     watch_enabled: true,
     watch_delay_sec: 30,
     watch_interval: 60,
@@ -164,6 +181,13 @@ async function edit(c: StrmConfig) {
     meta_exts: (c as any).meta_exts || extList(defaultMetaExts.value),
     strm_base: (c as any).strm_base || '',
     all_files: c.all_files,
+    overwrite_mode: c.overwrite_mode || 'always',
+    exclude_keywords: c.exclude_keywords || '',
+    min_file_size_mb: c.min_file_size_mb || 0,
+    skip_pending: !!c.skip_pending,
+    pending_dirs: c.pending_dirs || '待整理,待归类',
+    concurrency: c.concurrency || 8,
+    cron_full: c.cron_full || '',
     watch_enabled: c.watch_enabled,
     watch_delay_sec: c.watch_delay_sec || 30,
     watch_interval: c.watch_interval || 60,
@@ -230,6 +254,13 @@ async function save() {
       meta_exts: form.meta_exts,
       strm_base: form.strm_base,
       all_files: form.all_files,
+      overwrite_mode: form.overwrite_mode,
+      exclude_keywords: form.exclude_keywords,
+      min_file_size_mb: form.min_file_size_mb,
+      skip_pending: form.skip_pending,
+      pending_dirs: form.pending_dirs,
+      concurrency: form.concurrency,
+      cron_full: form.cron_full,
       watch_enabled: form.watch_enabled,
       watch_delay_sec: form.watch_delay_sec,
       watch_interval: form.watch_interval,
@@ -274,6 +305,27 @@ async function remove(c: StrmConfig) {
   }
 }
 
+async function approveCleanup(x: CleanupConfirmation) {
+  if (!window.confirm(`确认删除「${x.config_name}」的 ${x.total} 个残留 strm？`)) return
+  try {
+    const res = await api.post<{ removed: number }>(`/strm/cleanups/${x.id}/approve`)
+    toast(`已移除 ${res.removed} 个残留`)
+    await load()
+  } catch (e) {
+    toastError(e)
+  }
+}
+
+async function cancelCleanup(x: CleanupConfirmation) {
+  try {
+    await api.del(`/strm/cleanups/${x.id}`)
+    toast('已取消清理计划')
+    await load()
+  } catch (e) {
+    toastError(e)
+  }
+}
+
 async function showFiles(c: StrmConfig) {
   filesTitle.value = c.name
   files.value = []
@@ -304,6 +356,32 @@ function pathsOf(c: StrmConfig): PathRow[] {
 </script>
 
 <template>
+  <section class="card" v-if="cleanups.length">
+    <div class="card-head">
+      <div class="h">
+        <h3>待确认清理</h3>
+        <div class="desc">全量生成发现云端已删的残留，已通过稳定性与比例校验，等待人工确认</div>
+      </div>
+    </div>
+    <div class="list">
+      <div v-for="x in cleanups" :key="x.id" class="row-item">
+        <div class="body">
+          <div class="title">
+            {{ x.config_name }}
+            <span class="badge">{{ x.total }} 个残留</span>
+            <span class="badge" v-if="x.ratio">阈值 {{ x.ratio }}%</span>
+          </div>
+          <div class="meta">过期时间 {{ ago(x.expires_at) }}</div>
+          <div class="meta">{{ x.items.slice(0, 5).map((i) => i.name).join('、') }}{{ x.total > 5 ? ' …' : '' }}</div>
+        </div>
+        <div class="actions">
+          <button class="btn sm primary" @click="approveCleanup(x)">确认删除</button>
+          <button class="btn sm" @click="cancelCleanup(x)">取消计划</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="card">
     <div class="card-head">
       <div class="h">
@@ -333,6 +411,9 @@ function pathsOf(c: StrmConfig): PathRow[] {
               事件监控{{ c.last_check_at ? ' · ' + ago(c.last_check_at) : '' }}
             </span>
             <span v-if="c.sched_enabled" class="badge">定时 {{ c.sched_minutes }} 分钟</span>
+            <span v-if="c.cron_full" class="badge">Cron {{ c.cron_full }}</span>
+            <span v-if="c.overwrite_mode === 'never'" class="badge">不覆盖</span>
+            <span v-if="c.cleanup_stale_count" class="badge">残留稳定 {{ c.cleanup_stale_count }}</span>
             <span v-if="c.download_meta" class="badge">下载元数据</span>
           </div>
           <div class="meta">
@@ -363,7 +444,7 @@ function pathsOf(c: StrmConfig): PathRow[] {
 
     <div class="notice mt16">
       <div>
-        <strong>增量</strong>只补新增与改名的文件；<strong>全量</strong>清索引重扫、strm 全部重写一遍；
+        <strong>增量</strong>只补新增；<strong>全量</strong>重扫并重写内容有变化的 strm，清理残留前要做稳定性、比例和人工确认校验；
         <strong>全新</strong>先删掉这条配置生成过的旧 strm（只删自己的）再从头生成。
         事件监控监听 115 的目录变化，来了新文件就立刻生成，不用整棵树反复扫。
       </div>
@@ -437,6 +518,54 @@ function pathsOf(c: StrmConfig): PathRow[] {
         <div class="tip">nfo / 图片 / 字幕等，可下载到本地</div>
       </label>
     </div>
+
+    <div class="grid c2">
+      <label class="field">
+        <span>覆盖模式</span>
+        <select v-model="form.overwrite_mode">
+          <option value="always">始终重算（内容相同不写盘）</option>
+          <option value="never">已有 strm 直接跳过</option>
+        </select>
+        <div class="tip">参考 QBP115StrmHelper：never 时目标文件存在就不动，也不更新索引</div>
+      </label>
+      <label class="field">
+        <span>并发写线程</span>
+        <input v-model.number="form.concurrency" type="number" min="1" max="32" />
+        <div class="tip">列目录仍串行（115 限速），这里只控制写 strm / 下元数据的并发，0 用全局默认</div>
+      </label>
+    </div>
+
+    <div class="grid c2">
+      <label class="field">
+        <span>黑名单关键词</span>
+        <input v-model="form.exclude_keywords" placeholder="花絮,预告,sample" />
+        <div class="tip">文件名包含任一关键词就跳过，英文逗号分隔</div>
+      </label>
+      <label class="field">
+        <span>最小文件大小（MB）</span>
+        <input v-model.number="form.min_file_size_mb" type="number" min="0" />
+        <div class="tip">小于这个体积的文件不生成 strm，0 表示不限制</div>
+      </label>
+    </div>
+
+    <div class="switch-row">
+      <div class="txt">
+        <div class="t">跳过待整理目录</div>
+        <div class="d">网盘目录名命中下面的关键词时整棵子树不扫</div>
+      </div>
+      <div class="row">
+        <input v-model="form.pending_dirs" class="mono" style="width: 180px" placeholder="待整理,待归类" />
+        <label class="switch">
+          <input type="checkbox" v-model="form.skip_pending" /><span class="track"></span>
+        </label>
+      </div>
+    </div>
+
+    <label class="field">
+      <span>定时全量 Cron</span>
+      <input v-model="form.cron_full" class="mono" placeholder="0 3 * * *" />
+      <div class="tip">5 段：分 时 日 月 周；例如 <code>0 3 * * *</code> 是每天 03:00 跑全量，留空关闭</div>
+    </label>
 
     <div class="switch-row">
       <div class="txt">

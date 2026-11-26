@@ -33,6 +33,14 @@ export interface StrmConfig {
   meta_exts?: string
   strm_base?: string
   all_files: boolean
+  overwrite_mode?: 'always' | 'never'
+  exclude_keywords?: string
+  min_file_size_mb?: number
+  skip_pending?: boolean
+  pending_dirs?: string
+  concurrency?: number
+  cron_full?: string
+  cleanup_stale_count?: number
   watch_enabled: boolean
   watch_delay_sec: number
   watch_interval: number
@@ -48,6 +56,25 @@ export interface StrmConfig {
   created_at?: number
   /** TG 专属指令的代号：/inc_<代号> 增量、/full_<代号> 全量 */
   tg_alias?: string
+}
+
+export interface CleanupItem {
+  file_id: string
+  path: string
+  name: string
+}
+
+export interface CleanupConfirmation {
+  id: string
+  config_id: string
+  config_name: string
+  stale_sig: string
+  items: CleanupItem[]
+  total: number
+  ratio: number
+  state: string
+  created_at: number
+  expires_at: number
 }
 
 export interface ShareTask {
@@ -145,6 +172,11 @@ export interface Settings {
   watch_interval_sec: number
   download_meta: boolean
   api_qps: number
+  cleanup_max_delete_ratio?: number
+  cleanup_stable_rounds?: number
+  cleanup_confirm_required?: boolean
+  cleanup_confirm_ttl_hours?: number
+  default_concurrency?: number
   delete_enabled: boolean
   delete_grace_minutes: number
   delete_cloud_when_local_missing: boolean

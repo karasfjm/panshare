@@ -125,7 +125,7 @@ func (a *App) StrmSignature(c *model.StrmConfig) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	exts := a.strmExts(c)
+	f := a.strmFilter(c)
 	sig := &sigSet{}
 	var failed int
 	var walk func(cid, prefix, rel string, depth int) error
@@ -145,12 +145,15 @@ func (a *App) StrmSignature(c *model.StrmConfig) (string, error) {
 		for _, n := range nodes {
 			relPath := path.Join(rel, strm.Sanitize(n.Name, 200))
 			if n.IsDir {
+				if f.skipDir(n.Name) {
+					continue
+				}
 				if err := walk(n.ID, prefix, relPath, depth+1); err != nil {
 					return err
 				}
 				continue
 			}
-			if !strm.MatchExt(n.Name, exts, c.AllFiles) {
+			if !f.allow(n.Name, n.Size) {
 				continue
 			}
 			sig.add(path.Join(prefix, relPath), n)
@@ -166,6 +169,86 @@ func (a *App) StrmSignature(c *model.StrmConfig) (string, error) {
 		return "", fmt.Errorf("%d 个目录列不出来", failed)
 	}
 	return sig.sum(), nil
+}
+
+// strmFilter 是这条配置的生成过滤条件。对应 QBP115StrmHelper 的扩展名、
+// 黑名单关键词、最小文件大小与待整理路径跳过。
+type strmFilter struct {
+	exts        map[string]bool
+	allFiles    bool
+	keywords    []string
+	minBytes    int64
+	skipPending bool
+	pendingDirs []string
+}
+
+func splitList(raw string) []string {
+	raw = strings.ReplaceAll(raw, "，", ",")
+	raw = strings.ReplaceAll(raw, "\n", ",")
+	out := make([]string, 0, 4)
+	for _, p := range strings.Split(raw, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (a *App) strmFilter(c *model.StrmConfig) strmFilter {
+	f := strmFilter{
+		exts:        a.strmExts(c),
+		allFiles:    c.AllFiles,
+		keywords:    splitList(c.ExcludeKeywords),
+		minBytes:    int64(c.MinFileSizeMB) << 20,
+		skipPending: c.SkipPending,
+		pendingDirs: splitList(c.PendingDirs),
+	}
+	if len(f.pendingDirs) == 0 {
+		f.pendingDirs = []string{"待整理", "待归类", "待整理区"}
+	}
+	return f
+}
+
+// skipDir 只用于中间目录；映射根本身不做判断。
+func (f strmFilter) skipDir(name string) bool {
+	if !f.skipPending {
+		return false
+	}
+	for _, kw := range f.pendingDirs {
+		if strings.Contains(name, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func (f strmFilter) allow(name string, size int64) bool {
+	if !strm.MatchExt(name, f.exts, f.allFiles) {
+		return false
+	}
+	lower := strings.ToLower(name)
+	for _, kw := range f.keywords {
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return false
+		}
+	}
+	if f.minBytes > 0 && size < f.minBytes {
+		return false
+	}
+	return true
+}
+
+// strmExists 判断目标 strm 是否已经落盘，用于 overwrite_mode=never。
+func (a *App) strmExists(rel string) bool {
+	abs, err := a.Store.Abs(rel)
+	if err != nil {
+		return false
+	}
+	if !strings.HasSuffix(strings.ToLower(abs), ".strm") {
+		abs += ".strm"
+	}
+	_, err = os.Stat(abs)
+	return err == nil
 }
 
 // strmExts 取这条配置要生成 strm 的扩展名集合。
@@ -215,6 +298,9 @@ func (a *App) writeStrmFor(c *model.StrmConfig, prefix, relPath string, n p115.N
 		return "", false, fmt.Errorf("没有 pickcode")
 	}
 	rel := strmRelFor(prefix, relPath, n, nil)
+	if c.OverwriteMode == "never" && a.strmExists(rel) {
+		return "", false, nil
+	}
 	abs, changed, err := a.Store.Write(rel, a.PlayURLWith(c.StrmBase, pickcode, n.Name, uid))
 	if err != nil {
 		return "", false, err
@@ -241,7 +327,8 @@ func (a *App) writeStrmFor(c *model.StrmConfig, prefix, relPath string, n p115.N
 	return abs, changed, nil
 }
 
-func (a *App) runStrm(c *model.StrmConfig, mode GenMode) {
+// runStrmLegacy 是改造前的单 goroutine 版本，保留作对照，不再被调用。
+func (a *App) runStrmLegacy(c *model.StrmConfig, mode GenMode) {
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
 	defer cancel()
 

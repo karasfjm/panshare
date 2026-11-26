@@ -122,6 +122,21 @@ CREATE INDEX IF NOT EXISTS idx_files_pickcode ON strm_files(pickcode);
 CREATE INDEX IF NOT EXISTS idx_files_strm ON strm_files(strm_path);
 CREATE INDEX IF NOT EXISTS idx_files_sha1 ON strm_files(sha1);
 
+-- 全量清理的待确认队列：生成端只写计划，人工确认后才真正删文件。
+CREATE TABLE IF NOT EXISTS cleanup_confirmations (
+  id          TEXT PRIMARY KEY,
+  config_id   TEXT NOT NULL DEFAULT '',
+  config_name TEXT NOT NULL DEFAULT '',
+  stale_sig   TEXT NOT NULL DEFAULT '',
+  items       TEXT NOT NULL DEFAULT '[]',
+  total       INTEGER NOT NULL DEFAULT 0,
+  ratio       INTEGER NOT NULL DEFAULT 0,
+  state       TEXT NOT NULL DEFAULT 'pending',
+  created_at  INTEGER NOT NULL DEFAULT 0,
+  expires_at  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_cleanup_state ON cleanup_confirmations(state);
+
 CREATE TABLE IF NOT EXISTS share_tasks (
   id             TEXT PRIMARY KEY,
   account_id     TEXT NOT NULL DEFAULT '',
@@ -230,6 +245,15 @@ func (d *DB) migrate() error {
 		{"strm_configs", "paths", "TEXT NOT NULL DEFAULT ''"},
 		{"strm_configs", "strm_base", "TEXT NOT NULL DEFAULT ''"},
 		{"strm_configs", "meta_exts", "TEXT NOT NULL DEFAULT ''"},
+		{"strm_configs", "overwrite_mode", "TEXT NOT NULL DEFAULT 'always'"},
+		{"strm_configs", "exclude_keywords", "TEXT NOT NULL DEFAULT ''"},
+		{"strm_configs", "min_file_size_mb", "INTEGER NOT NULL DEFAULT 0"},
+		{"strm_configs", "skip_pending", "INTEGER NOT NULL DEFAULT 0"},
+		{"strm_configs", "pending_dirs", "TEXT NOT NULL DEFAULT ''"},
+		{"strm_configs", "concurrency", "INTEGER NOT NULL DEFAULT 0"},
+		{"strm_configs", "cron_full", "TEXT NOT NULL DEFAULT ''"},
+		{"strm_configs", "cleanup_stale_sig", "TEXT NOT NULL DEFAULT ''"},
+		{"strm_configs", "cleanup_stale_count", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		has, err := d.hasColumn(m.table, m.col)
 		if err != nil {
@@ -345,6 +369,25 @@ func (d *DB) GetSettings(def model.Settings) model.Settings {
 	}
 	if s.PublicBaseURL == "" {
 		s.PublicBaseURL = def.PublicBaseURL
+	}
+	// 老库 JSON 里没有的新字段按默认值补齐。布尔字段尤其重要：
+	// 缺键反序列化后是 false，会把「默认要二次确认」悄悄关掉。
+	var keys map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &keys) == nil {
+		for _, item := range []struct {
+			key string
+			set func()
+		}{
+			{"cleanup_max_delete_ratio", func() { s.CleanupMaxDeleteRatio = def.CleanupMaxDeleteRatio }},
+			{"cleanup_stable_rounds", func() { s.CleanupStableRounds = def.CleanupStableRounds }},
+			{"cleanup_confirm_required", func() { s.CleanupConfirmRequired = def.CleanupConfirmRequired }},
+			{"cleanup_confirm_ttl_hours", func() { s.CleanupConfirmTTLHours = def.CleanupConfirmTTLHours }},
+			{"default_concurrency", func() { s.DefaultConcurrency = def.DefaultConcurrency }},
+		} {
+			if _, ok := keys[item.key]; !ok {
+				item.set()
+			}
+		}
 	}
 	return s
 }
@@ -498,17 +541,21 @@ func (d *DB) DeleteAccount(id string) error {
 const configCols = `id, name, account_id, remote_id, remote_path, local_dir, mode,
 	include_exts, all_files, watch_enabled, watch_delay, watch_interval, last_sig,
 	last_check_at, sched_enabled, sched_minutes, download_meta, last_run_at, last_status, last_message,
-	files, created_at, paths, strm_base, meta_exts`
+	files, created_at, paths, strm_base, meta_exts,
+	overwrite_mode, exclude_keywords, min_file_size_mb, skip_pending, pending_dirs,
+	concurrency, cron_full, cleanup_stale_sig, cleanup_stale_count`
 
 func scanConfig(sc interface{ Scan(...any) error }) (*model.StrmConfig, error) {
 	var c model.StrmConfig
-	var allFiles, watch, sched, meta int
+	var allFiles, watch, sched, meta, skipPending int
 	var pathsJSON string
 	err := sc.Scan(&c.ID, &c.Name, &c.AccountID, &c.RemoteID, &c.RemotePath, &c.LocalDir,
 		&c.Mode, &c.IncludeExts, &allFiles, &watch, &c.WatchDelaySec, &c.WatchInterval,
 		&c.LastSig, &c.LastCheckAt, &sched, &c.SchedMinutes, &meta, &c.LastRunAt, &c.LastStatus,
 		&c.LastMessage, &c.Files, &c.CreatedAt,
-		&pathsJSON, &c.StrmBase, &c.MetaExts)
+		&pathsJSON, &c.StrmBase, &c.MetaExts,
+		&c.OverwriteMode, &c.ExcludeKeywords, &c.MinFileSizeMB, &skipPending, &c.PendingDirs,
+		&c.Concurrency, &c.CronFull, &c.CleanupStaleSig, &c.CleanupStaleCount)
 	if err != nil {
 		return nil, err
 	}
@@ -516,6 +563,10 @@ func scanConfig(sc interface{ Scan(...any) error }) (*model.StrmConfig, error) {
 	c.WatchEnabled = watch == 1
 	c.SchedEnabled = sched == 1
 	c.DownloadMeta = meta == 1
+	c.SkipPending = skipPending == 1
+	if strings.TrimSpace(c.OverwriteMode) == "" {
+		c.OverwriteMode = "always"
+	}
 	if strings.TrimSpace(pathsJSON) != "" {
 		_ = json.Unmarshal([]byte(pathsJSON), &c.Paths)
 	}
@@ -562,13 +613,19 @@ func (d *DB) CreateConfig(c model.StrmConfig) error {
 			pathsJSON = string(b)
 		}
 	}
+	overwrite := c.OverwriteMode
+	if strings.TrimSpace(overwrite) == "" {
+		overwrite = "always"
+	}
 	_, err := d.sql.Exec(`INSERT INTO strm_configs (`+configCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.ID, c.Name, c.AccountID, c.RemoteID, c.RemotePath, c.LocalDir, c.Mode,
 		c.IncludeExts, b(c.AllFiles), b(c.WatchEnabled), c.WatchDelaySec,
 		c.WatchInterval, c.LastSig, c.LastCheckAt, b(c.SchedEnabled), c.SchedMinutes,
 		b(c.DownloadMeta), c.LastRunAt, c.LastStatus, c.LastMessage, c.Files, c.CreatedAt,
-		pathsJSON, c.StrmBase, c.MetaExts)
+		pathsJSON, c.StrmBase, c.MetaExts,
+		overwrite, c.ExcludeKeywords, c.MinFileSizeMB, b(c.SkipPending), c.PendingDirs,
+		c.Concurrency, c.CronFull, c.CleanupStaleSig, c.CleanupStaleCount)
 	return err
 }
 
@@ -714,7 +771,8 @@ func (d *DB) FindFileByFileID(configID, fileID string) (*model.StrmFile, error) 
 	return &f, err
 }
 
-func (d *DB) DeleteFileRow(id int64) error {	_, err := d.sql.Exec("DELETE FROM strm_files WHERE id = ?", id)
+func (d *DB) DeleteFileRow(id int64) error {
+	_, err := d.sql.Exec("DELETE FROM strm_files WHERE id = ?", id)
 	return err
 }
 
@@ -1217,4 +1275,128 @@ func (d *DB) FindFileBySuffix(p string) (*model.StrmFile, error) {
 	}
 	f.Deleted = deleted == 1
 	return &f, nil
+}
+
+// ---------------------------------------------------------------- 批量写索引
+
+// UpsertFiles 在一个事务里批量写索引。并发生成时 worker 只负责扫目录和写 strm，
+// 索引攒成一批再落库，避免每行一次 fsync。
+func (d *DB) UpsertFiles(files []model.StrmFile) error {
+	if len(files) == 0 {
+		return nil
+	}
+	tx, err := d.sql.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`INSERT INTO strm_files
+		(config_id, account_id, file_id, pickcode, name, rel_path, strm_path, size,
+		 sha1, parent_id, share_code, source, deleted, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?)
+		ON CONFLICT(config_id, file_id) DO UPDATE SET
+		  account_id = excluded.account_id, pickcode = excluded.pickcode,
+		  name = excluded.name, rel_path = excluded.rel_path,
+		  strm_path = excluded.strm_path, size = excluded.size,
+		  sha1 = excluded.sha1, parent_id = excluded.parent_id,
+		  share_code = excluded.share_code, source = excluded.source, deleted = 0`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, f := range files {
+		if f.CreatedAt == 0 {
+			f.CreatedAt = now()
+		}
+		if _, err := stmt.Exec(f.ConfigID, f.AccountID, f.FileID, f.Pickcode, f.Name,
+			f.RelPath, f.StrmPath, f.Size, f.Sha1, f.ParentID, f.ShareCode,
+			f.Source, f.CreatedAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteFileRows 批量删除索引行（清理确认通过后调用）。
+func (d *DB) DeleteFileRows(configID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := d.sql.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare("DELETE FROM strm_files WHERE config_id = ? AND file_id = ?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, id := range ids {
+		if _, err := stmt.Exec(configID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ---------------------------------------------------------------- 清理确认队列
+
+const cleanupCols = `id, config_id, config_name, stale_sig, items, total, ratio, state, created_at, expires_at`
+
+func scanCleanup(sc interface{ Scan(...any) error }) (*model.CleanupConfirmation, error) {
+	var x model.CleanupConfirmation
+	var items string
+	err := sc.Scan(&x.ID, &x.ConfigID, &x.ConfigName, &x.StaleSig, &items,
+		&x.Total, &x.Ratio, &x.State, &x.CreatedAt, &x.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(items), &x.Items)
+	return &x, nil
+}
+
+func (d *DB) CreateCleanup(x model.CleanupConfirmation) error {
+	items, err := json.Marshal(x.Items)
+	if err != nil {
+		return err
+	}
+	_, err = d.sql.Exec(`INSERT INTO cleanup_confirmations (`+cleanupCols+`)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`, x.ID, x.ConfigID, x.ConfigName, x.StaleSig,
+		string(items), x.Total, x.Ratio, x.State, x.CreatedAt, x.ExpiresAt)
+	return err
+}
+
+func (d *DB) ListCleanups(state string) []model.CleanupConfirmation {
+	rows, err := d.sql.Query("SELECT "+cleanupCols+" FROM cleanup_confirmations WHERE state = ? ORDER BY created_at DESC", state)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make([]model.CleanupConfirmation, 0, 8)
+	for rows.Next() {
+		if x, err := scanCleanup(rows); err == nil {
+			out = append(out, *x)
+		}
+	}
+	return out
+}
+
+func (d *DB) GetCleanup(id string) (*model.CleanupConfirmation, error) {
+	row := d.sql.QueryRow("SELECT "+cleanupCols+" FROM cleanup_confirmations WHERE id = ?", id)
+	x, err := scanCleanup(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return x, err
+}
+
+func (d *DB) SetCleanupState(id, state string) error {
+	_, err := d.sql.Exec("UPDATE cleanup_confirmations SET state = ? WHERE id = ?", state, id)
+	return err
+}
+
+// ExpireCleanups 把过期的 pending 计划标记为 expired，列表接口会再过滤一层。
+func (d *DB) ExpireCleanups() {
+	_, _ = d.sql.Exec("UPDATE cleanup_confirmations SET state = 'expired' WHERE state = 'pending' AND expires_at > 0 AND expires_at < ?", now())
 }

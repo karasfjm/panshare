@@ -27,33 +27,47 @@ type StrmPath struct {
 
 // StrmConfig 是一条「账号 + 网盘路径 → 本地目录」的生成配置。
 type StrmConfig struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	AccountID     string     `json:"account_id"`
-	AccountName   string     `json:"account_name"`
-	Paths         []StrmPath `json:"paths"` // 多条映射；空则回落到下面三个老字段
-	RemoteID      string     `json:"remote_id"`
-	RemotePath    string     `json:"remote_path"`
-	LocalDir      string     `json:"local_dir"`
-	Mode          string     `json:"mode"` // pickcode（普通目录）/ share（指向自己的分享）
-	IncludeExts   string     `json:"include_exts"`
-	MetaExts      string     `json:"meta_exts"` // 元数据扩展名（nfo/jpg/srt…）
-	StrmBase      string     `json:"strm_base"` // strm 请求头，留空用全局
-	AllFiles      bool       `json:"all_files"`
-	WatchEnabled  bool       `json:"watch_enabled"`   // 事件监控（115 生活事件实时增量）
-	WatchDelaySec int        `json:"watch_delay_sec"` // 事件延时，等上传任务落盘
-	WatchInterval int        `json:"watch_interval"`  // 事件监控轮询间隔（秒），0 = 用全局默认
-	LastSig       string     `json:"last_sig"`        // 目录指纹（事件接口不可用时的兜底）
-	LastCheckAt   int64      `json:"last_check_at"`   // 上次探测目录的时间
-	SchedEnabled  bool       `json:"sched_enabled"`   // 定时增量巡检
-	SchedMinutes  int        `json:"sched_minutes"`
-	DownloadMeta  bool       `json:"download_meta"` // 下载 nfo/海报等元数据
-	LastRunAt     int64      `json:"last_run_at"`
-	LastStatus    string     `json:"last_status"`
-	LastMessage   string     `json:"last_message"`
-	Files         int        `json:"files"`
-	Running       bool       `json:"running"`
-	CreatedAt     int64      `json:"created_at"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	AccountID   string     `json:"account_id"`
+	AccountName string     `json:"account_name"`
+	Paths       []StrmPath `json:"paths"` // 多条映射；空则回落到下面三个老字段
+	RemoteID    string     `json:"remote_id"`
+	RemotePath  string     `json:"remote_path"`
+	LocalDir    string     `json:"local_dir"`
+	Mode        string     `json:"mode"` // pickcode（普通目录）/ share（指向自己的分享）
+	IncludeExts string     `json:"include_exts"`
+	MetaExts    string     `json:"meta_exts"` // 元数据扩展名（nfo/jpg/srt…）
+	StrmBase    string     `json:"strm_base"` // strm 请求头，留空用全局
+	AllFiles    bool       `json:"all_files"`
+
+	// 参考 QBP115StrmHelper 补齐的生成策略
+	OverwriteMode   string `json:"overwrite_mode"`   // always / never，默认 always
+	ExcludeKeywords string `json:"exclude_keywords"` // 逗号分隔；命中文件名的文件不生成
+	MinFileSizeMB   int    `json:"min_file_size_mb"` // 小于该体积（MB）的文件不生成，0 = 不过滤
+	SkipPending     bool   `json:"skip_pending"`     // 跳过待整理目录
+	PendingDirs     string `json:"pending_dirs"`     // 逗号分隔的待整理目录名，留空用默认「待整理」
+	Concurrency     int    `json:"concurrency"`      // 写 strm 的 worker 数，0 = 用全局默认
+	CronFull        string `json:"cron_full"`        // 定时全量，5 段 cron：分 时 日 月 周；留空关闭
+
+	// 清理稳定性：同一批残留连续出现 N 次才允许清理
+	CleanupStaleSig   string `json:"cleanup_stale_sig"`
+	CleanupStaleCount int    `json:"cleanup_stale_count"`
+
+	WatchEnabled  bool   `json:"watch_enabled"`   // 事件监控（115 生活事件实时增量）
+	WatchDelaySec int    `json:"watch_delay_sec"` // 事件延时，等上传任务落盘
+	WatchInterval int    `json:"watch_interval"`  // 事件监控轮询间隔（秒），0 = 用全局默认
+	LastSig       string `json:"last_sig"`        // 目录指纹（事件接口不可用时的兜底）
+	LastCheckAt   int64  `json:"last_check_at"`   // 上次探测目录的时间
+	SchedEnabled  bool   `json:"sched_enabled"`   // 定时增量巡检
+	SchedMinutes  int    `json:"sched_minutes"`
+	DownloadMeta  bool   `json:"download_meta"` // 下载 nfo/海报等元数据
+	LastRunAt     int64  `json:"last_run_at"`
+	LastStatus    string `json:"last_status"`
+	LastMessage   string `json:"last_message"`
+	Files         int    `json:"files"`
+	Running       bool   `json:"running"`
+	CreatedAt     int64  `json:"created_at"`
 }
 
 // EffectivePaths 返回真正要扫描的映射：优先用新字段，老配置自动回落。
@@ -199,6 +213,27 @@ type Deletion struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+// CleanupItem 是待确认清理队列里的一条残留 strm。
+type CleanupItem struct {
+	FileID string `json:"file_id"`
+	Path   string `json:"path"`
+	Name   string `json:"name"`
+}
+
+// CleanupConfirmation 是一次清理计划。生成端只写计划，确认/取消由 API 驱动。
+type CleanupConfirmation struct {
+	ID         string        `json:"id"`
+	ConfigID   string        `json:"config_id"`
+	ConfigName string        `json:"config_name"`
+	StaleSig   string        `json:"stale_sig"`
+	Items      []CleanupItem `json:"items"`
+	Total      int           `json:"total"`
+	Ratio      int           `json:"ratio"`
+	State      string        `json:"state"` // pending / approved / cancelled / expired
+	CreatedAt  int64         `json:"created_at"`
+	ExpiresAt  int64         `json:"expires_at"`
+}
+
 // Settings 是全局设置，整体以 JSON 存进 settings 表。
 type Settings struct {
 	SiteName      string `json:"site_name"`
@@ -212,6 +247,13 @@ type Settings struct {
 	WatchIntervalSec int    `json:"watch_interval_sec"` // 事件监控轮询间隔默认值（秒）
 	DownloadMeta     bool   `json:"download_meta"`
 	APIQPS           int    `json:"api_qps"`
+
+	// 全量清理安全策略（参考 QBP115StrmHelper）
+	CleanupMaxDeleteRatio  int  `json:"cleanup_max_delete_ratio"`  // 单次删除占比上限（%），0 = 不限制
+	CleanupStableRounds    int  `json:"cleanup_stable_rounds"`     // 残留集合连续稳定多少轮才清理，默认 3
+	CleanupConfirmRequired bool `json:"cleanup_confirm_required"`  // 清理前是否要人工确认
+	CleanupConfirmTTLHours int  `json:"cleanup_confirm_ttl_hours"` // 确认队列有效期（小时）
+	DefaultConcurrency     int  `json:"default_concurrency"`       // 生成 worker 数，默认 8
 
 	// 联动删除
 	DeleteEnabled               bool `json:"delete_enabled"`
@@ -304,7 +346,14 @@ func DefaultSettings(strmRoot, baseURL string) Settings {
 		WatchIntervalSec: 60,
 		DownloadMeta:     false,
 		APIQPS:           2,
-		DeleteEnabled:    false, DeleteGraceMinutes: 0,
+		// 安全默认值：连续 3 轮稳定、单次删除不超过 30%、默认仍要二次确认。
+		// 老库升级后这些字段是零值，读取侧会用同样的默认值兜底。
+		CleanupMaxDeleteRatio:  30,
+		CleanupStableRounds:    3,
+		CleanupConfirmRequired: true,
+		CleanupConfirmTTLHours: 24,
+		DefaultConcurrency:     8,
+		DeleteEnabled:          false, DeleteGraceMinutes: 0,
 		DeleteCloudWhenLocalMissing: true,
 		DeleteLocalWhenCloudDeleted: true,
 		DeleteMetaWithStrm:          true,

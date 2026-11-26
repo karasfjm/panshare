@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"panshare/internal/model"
@@ -35,6 +36,7 @@ func (a *App) scheduleLoop(ctx context.Context) {
 	// 容器每重启一次就会把所有配置立刻跑一遍全量扫描。
 	watchAt := map[string]time.Time{} // key 是账号 id：事件监控按账号拉，一轮分发给所有配置
 	sched := map[string]time.Time{}   // 上次定时巡检时间
+	cronLast := map[string]string{}   // 上次执行 cron 全量的分钟，避免同一分钟重复触发
 	fails := map[string]int{}         // 连续失败次数，用于退避
 	lastLink := time.Time{}
 
@@ -68,6 +70,17 @@ func (a *App) scheduleLoop(ctx context.Context) {
 						sched[c.ID] = now
 						log.Printf("定时巡检触发增量：%s（间隔 %d 分钟）", c.Name, c.SchedMinutes)
 						_, _ = a.RunStrm(c.ID, ModeInc)
+					}
+				}
+				// 定时全量（5 段 cron）
+				if strings.TrimSpace(c.CronFull) != "" {
+					minuteKey := now.Format("2006-01-02 15:04")
+					if cronLast[c.ID] != minuteKey {
+						if expr, err := parseCron(c.CronFull); err == nil && expr.match(now) {
+							cronLast[c.ID] = minuteKey
+							log.Printf("cron 触发全量：%s（%s）", c.Name, c.CronFull)
+							_, _ = a.RunStrm(c.ID, ModeFull)
+						}
 					}
 				}
 			}

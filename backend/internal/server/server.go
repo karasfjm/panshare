@@ -81,6 +81,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/strm/configs/{id}/run", s.auth(s.runConfig))
 	mux.Handle("GET /api/strm/configs/{id}/files", s.auth(s.configFiles))
 	mux.Handle("GET /api/files", s.auth(s.searchFiles))
+	mux.Handle("GET /api/strm/cleanups", s.auth(s.listCleanups))
+	mux.Handle("POST /api/strm/cleanups/{id}/approve", s.auth(s.approveCleanup))
+	mux.Handle("DELETE /api/strm/cleanups/{id}", s.auth(s.cancelCleanup))
 
 	// 分享转存
 	mux.Handle("GET /api/shares", s.auth(s.listShares))

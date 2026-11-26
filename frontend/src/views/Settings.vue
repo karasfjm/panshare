@@ -57,6 +57,11 @@ async function save() {
       watch_interval_sec: s.value.watch_interval_sec,
       download_meta: s.value.download_meta,
       api_qps: s.value.api_qps,
+      cleanup_max_delete_ratio: s.value.cleanup_max_delete_ratio,
+      cleanup_stable_rounds: s.value.cleanup_stable_rounds,
+      cleanup_confirm_required: s.value.cleanup_confirm_required,
+      cleanup_confirm_ttl_hours: s.value.cleanup_confirm_ttl_hours,
+      default_concurrency: s.value.default_concurrency,
       share_dir_cid: s.value.share_dir_cid,
       share_dir_name: s.value.share_dir_name,
       ed2k_account_id: s.value.ed2k_account_id,
@@ -135,6 +140,44 @@ async function save() {
           <input type="checkbox" v-model="s.download_meta" /><span class="track"></span>
           <span class="label">{{ s.download_meta ? '开' : '关' }}</span>
         </label>
+      </label>
+    </div>
+  </section>
+
+  <section class="card" v-if="s">
+    <div class="card-head">
+      <div class="h">
+        <h3>全量清理安全策略</h3>
+        <div class="desc">参考 QBP115StrmHelper：残留要连续稳定几轮、删除占比上限、以及是否人工确认</div>
+      </div>
+    </div>
+    <div class="grid c2">
+      <label class="field">
+        <span>连续稳定轮数</span>
+        <input v-model.number="s.cleanup_stable_rounds" type="number" min="1" />
+        <div class="tip">同一批残留连续出现 N 次才进入清理流程，默认 3</div>
+      </label>
+      <label class="field">
+        <span>单次删除占比上限（%）</span>
+        <input v-model.number="s.cleanup_max_delete_ratio" type="number" min="0" max="100" />
+        <div class="tip">超过就中止清理并告警，0 表示不限制；默认 30</div>
+      </label>
+      <label class="field">
+        <span>确认有效期（小时）</span>
+        <input v-model.number="s.cleanup_confirm_ttl_hours" type="number" min="1" />
+      </label>
+      <label class="field">
+        <span>默认写线程数</span>
+        <input v-model.number="s.default_concurrency" type="number" min="1" max="32" />
+        <div class="tip">配置里不填时用这个；列目录仍然串行，避免 115 限流</div>
+      </label>
+      <label class="field">
+        <span>清理前人工确认</span>
+        <label class="switch" style="margin-top: 6px">
+          <input type="checkbox" v-model="s.cleanup_confirm_required" /><span class="track"></span>
+          <span class="label">{{ s.cleanup_confirm_required ? '开' : '关' }}</span>
+        </label>
+        <div class="tip">开启后全量只生成清理计划，在「STRM 生成」页确认后才会删除</div>
       </label>
     </div>
   </section>

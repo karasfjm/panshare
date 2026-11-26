@@ -254,7 +254,18 @@ func (a *App) lifeCreate(client *p115.Client, cfgs []*model.StrmConfig, e p115.L
 	done := 0
 	for _, c := range cfgs {
 		m, ok := a.matchRemotePath(c, dirPath)
-		if !ok || !strm.MatchExt(e.Name, a.strmExts(c), c.AllFiles) {
+		f := a.strmFilter(c)
+		if !ok || !f.allow(e.Name, e.Size) {
+			continue
+		}
+		skipDir := false
+		for _, part := range strings.Split(m.relDir, "/") {
+			if f.skipDir(part) {
+				skipDir = true
+				break
+			}
+		}
+		if skipDir {
 			continue
 		}
 		if n.Pickcode == "" {
